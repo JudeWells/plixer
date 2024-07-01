@@ -1,0 +1,18 @@
+defaults:
+  - _self_
+  - data: data.yaml
+  - model: vox2smiles.yaml
+  - callbacks: default.yaml
+  - logger: wandb.yaml
+  - trainer: gpu.yaml
+  - paths: default.yaml
+  - extras: default.yaml
+  - hydra: default.yaml
+
+task_name: "vox_to_smiles"
+tags: ["dev"]
+train: True
+test: True
+optimized_metric: "val/loss"
+ckpt_path: null # over-ride this to resume training
+seed: 42
