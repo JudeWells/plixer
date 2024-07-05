@@ -5,6 +5,8 @@ import torch.nn as nn
 from src.models.pytorch3dunet_lib.unet3d.buildingblocks import DoubleConv, ResNetBlock, ResNetBlockSE, \
     create_decoders, create_encoders
 
+from pytorch3dunet.unet3d.losses import get_loss_criterion
+
 def number_of_features_per_level(init_channel_number, num_levels):
     return [init_channel_number * 2 ** k for k in range(num_levels)]
 def get_class(class_name, modules):
@@ -91,7 +93,7 @@ class AbstractUNet(nn.Module):
             # regression problem
             self.final_activation = None
 
-    def forward(self, x):
+    def forward(self, x, labels=None):
         # encoder part
         encoders_features = []
         for encoder in self.encoders:
@@ -114,6 +116,10 @@ class AbstractUNet(nn.Module):
         # apply final_activation (i.e. Sigmoid or Softmax).
         if self.final_activation is not None:
             x = self.final_activation(x)
+
+        if labels is not None:
+            loss = get_loss_criterion()(x, labels)
+            return x, loss
 
         return x
 
@@ -156,7 +162,7 @@ class ResidualUNet3D(AbstractUNet):
 
     def __init__(self, in_channels, out_channels, final_sigmoid=True, f_maps=64, layer_order='gcr',
                  num_groups=8, num_levels=5, is_segmentation=True, conv_padding=1,
-                 conv_upscale=2, upsample='default', dropout_prob=0.1, **kwargs):
+                 conv_upscale=2, upsample='default', dropout_prob=0.1, loss_fn= **kwargs):
         super(ResidualUNet3D, self).__init__(in_channels=in_channels,
                                              out_channels=out_channels,
                                              final_sigmoid=final_sigmoid,
@@ -171,6 +177,7 @@ class ResidualUNet3D(AbstractUNet):
                                              upsample=upsample,
                                              dropout_prob=dropout_prob,
                                              is3d=True)
+        self.loss_fn = get_loss_criterion()
 
 
 class ResidualUNetSE3D(AbstractUNet):

@@ -74,7 +74,7 @@ class Poc2Mol(LightningModule):
             dropout_prob=config.dropout_prob,
             basic_module=config.basic_module,
         )
-        self.criterion = torch.nn.CrossEntropyLoss()
+        self.criterion = torch.nn.CrossEntropyLoss()  #  todo check if this is necessary for lightning
         self.lr = lr
         self.weight_decay = weight_decay
         self.scheduler_name = scheduler_name
@@ -86,9 +86,7 @@ class Poc2Mol(LightningModule):
         return self.model(pixel_values=pixel_values, labels=labels)
 
     def training_step(self, batch, batch_idx):
-        pixel_values = batch["pixel_values"]
-        labels = batch["input_ids"]
-        outputs = self(pixel_values, labels=labels)
+        outputs = self(batch["protein"], labels=batch["ligand"])
         loss = outputs.loss
         self.train_loss(loss)
         self.log("train/loss", self.train_loss, on_step=False, on_epoch=True, prog_bar=True)
@@ -96,15 +94,14 @@ class Poc2Mol(LightningModule):
         return loss
 
     def validation_step(self, batch, batch_idx):
-        pixel_values = batch["pixel_values"]
-        labels = batch["input_ids"]
-        outputs = self(pixel_values, labels=labels)
+        outputs = self(batch["protein"], labels=batch["ligand"])
         loss = outputs.loss
         self.val_loss(loss)
         self.log("val/loss", self.val_loss, on_step=False, on_epoch=True, prog_bar=True)
         return loss
 
     def test_step(self, batch, batch_idx):
+        outputs = self(batch["protein"], labels=batch["ligand"])
         pass
 
     def configure_optimizers(self) -> Dict[str, Any]:

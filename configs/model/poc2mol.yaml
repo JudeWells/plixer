@@ -14,6 +14,12 @@ config:
   upsample: 'default'
   dropout_prob: 0.1
   basic_module: ${oc.select:src.models.pytorch3dunet_lib.unet3d.buildingblocks.ResNetBlockSE, src.models.pytorch3dunet_lib.unet3d.buildingblocks.ResNetBlockSE}
+  loss:
+      "name": "BCEDiceLoss",
+      "weight": None,
+      "normalization": "none",
+      "alpha": 0.1, # BCE weight
+      "beta": 1 # DICE weight
 lr: 5e-5
 scheduler_name: "constant_with_warmup"
 num_training_steps: null

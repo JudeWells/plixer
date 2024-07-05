@@ -14,7 +14,9 @@ class DataConfig:
             box_dims: list = [24, 24, 24],
             batch_size: int = 32,
             num_workers: int = 0,
-            dtype = torch.float16,
+            dtype=torch.float16,
+            ligand_channels: list[int] = [0, 1, 2, 3, 4, 5],
+            protein_channels: list[int] = [6, 7, 8, 9, 10, 11],
             fnames: Optional[list] = None,
     ):
         self.pdb_dir = pdb_dir
@@ -26,6 +28,9 @@ class DataConfig:
         self.num_workers = num_workers
         self.dtype = dtype
         self.fnames = fnames
+        self.ligand_channels = ligand_channels
+        self.protein_channels = protein_channels
+
 
 class ComplexDataModule(LightningDataModule):
     def __init__(self, config: DataConfig):
