@@ -170,7 +170,7 @@ class BCEDiceLoss(nn.Module):
     def __init__(self, alpha, beta, normalisation='none'):
         super(BCEDiceLoss, self).__init__()
         self.alpha = alpha
-        self.bce = nn.BCELoss()
+        self.bce = nn.BCEWithLogitsLoss()
         self.beta = beta
         self.dice = DiceLoss(normalization=normalisation)
 

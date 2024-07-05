@@ -84,21 +84,18 @@ class Poc2Mol(LightningModule):
         self.num_decay_steps = num_decay_steps
         self.num_training_steps = num_training_steps
 
-    def forward(self, pixel_values, labels=None):
-        return self.model(pixel_values=pixel_values, labels=labels)
+    def forward(self, prot_vox, labels=None):
+        return self.model(x=prot_vox, labels=labels)
 
     def training_step(self, batch, batch_idx):
         outputs, loss = self(batch["protein"], labels=batch["ligand"])
-        self.train_loss(loss)
-        self.log("train/loss", self.train_loss, on_step=False, on_epoch=True, prog_bar=True)
+        self.log("train/loss", loss, on_step=False, on_epoch=True, prog_bar=True)
         self.log("train/batch_loss", loss, on_step=True, on_epoch=False, prog_bar=True)
         return loss
 
     def validation_step(self, batch, batch_idx):
         outputs, loss = self(batch["protein"], labels=batch["ligand"])
-        loss = outputs.loss
-        self.val_loss(loss)
-        self.log("val/loss", self.val_loss, on_step=False, on_epoch=True, prog_bar=True)
+        self.log("val/loss", loss, on_step=False, on_epoch=True, prog_bar=True)
         return loss
 
     def test_step(self, batch, batch_idx):

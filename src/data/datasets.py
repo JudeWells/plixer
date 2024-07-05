@@ -34,7 +34,7 @@ class ComplexDataset(Dataset):
         ligand_paths = ['/'.join(p.split("/")[:-1]) for p in glob.glob(f"{self.pdb_dir}/*/*_ligand.mol2")]
         return sorted(list(set(protein_paths).intersection(set(ligand_paths))))
     def __len__(self):
-        return len(self.pdb_dir)
+        return len(self.struct_paths)
 
     def __getitem__(self, idx):
         directory = self.struct_paths[idx]
