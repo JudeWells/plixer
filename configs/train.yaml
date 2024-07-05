@@ -4,7 +4,7 @@ defaults:
   - model: vox2smiles.yaml
   - callbacks: default.yaml
   - logger: wandb.yaml
-  - trainer: gpu.yaml
+  - trainer: default.yaml
   - paths: default.yaml
   - extras: default.yaml
   - hydra: default.yaml

@@ -4,6 +4,7 @@ from lightning import LightningModule
 from torchmetrics import MeanMetric
 from pytorch3dunet import ResidualUNetSE3D
 
+
 class VoxToSmilesModel(LightningModule):
     def __init__(
         self,
@@ -55,11 +56,6 @@ class VoxToSmilesModel(LightningModule):
         loss = outputs.loss
         self.val_loss(loss)
         self.log("val/loss", self.val_loss, on_step=False, on_epoch=True, prog_bar=True)
-        accuracy = accuracy_from_outputs(outputs, labels, start_ix=1, ignore_index=0)
-        self.val_acc(accuracy)
-        self.log("val/accuracy", self.val_acc, on_step=False, on_epoch=True, prog_bar=True)
-        if batch_idx < 3:
-            self.visualize_smiles(batch, outputs)
         return loss
 
     def test_step(self, batch, batch_idx):
