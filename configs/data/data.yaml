@@ -10,3 +10,5 @@ config:
   num_workers: null
   dtype: ${oc.select:torch.float16,torch.float16}
   fnames: null
+  ligand_channels: [0, 1, 2, 3, 4, 5]
+  protein_channels: [6, 7, 8, 9, 10, 11]

@@ -1,6 +1,6 @@
 _target_: src.models.poc2mol.Poc2Mol
 config:
-  _target_: src.models.poc2mol.Poc2MolConfig
+  _target_: src.models.poc2mol.ResUnetConfig
   in_channels: 1
   out_channels: 2
   final_sigmoid: True
@@ -11,16 +11,16 @@ config:
   is_segmentation: True
   conv_padding: 1
   conv_upscale: 2
-  upsample: 'default'
+  upsample: default
   dropout_prob: 0.1
   basic_module: ${oc.select:src.models.pytorch3dunet_lib.unet3d.buildingblocks.ResNetBlockSE, src.models.pytorch3dunet_lib.unet3d.buildingblocks.ResNetBlockSE}
   loss:
-      "name": "BCEDiceLoss",
-      "weight": None,
-      "normalization": "none",
-      "alpha": 0.1, # BCE weight
-      "beta": 1 # DICE weight
+    name: BCEDiceLoss
+    weight: null
+    normalization: null
+    alpha: 0.1 # BCE weight
+    beta: 1 # DICE weight
 lr: 5e-5
-scheduler_name: "constant_with_warmup"
+scheduler_name: constant_with_warmup
 num_training_steps: null
 num_warmup_steps: 1000

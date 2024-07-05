@@ -39,8 +39,8 @@ class ComplexDataModule(LightningDataModule):
 
     def setup(self, stage: Optional[str] = None):
         self.train_dataset = ComplexDataset(self.config)
-        self.val_dataset = None
-        self.test_dataset = None
+        self.val_dataset = ComplexDataset(self.config)
+        self.test_dataset = ComplexDataset(self.config)
 
 
 

@@ -8,7 +8,7 @@ from docktgrid.transforms import RandomRotation
 from docktgrid.molecule import MolecularComplex
 from docktgrid import VoxelGrid
 
-from src.data.docktgrid_mods import ComplexView, MolecularComplexWrapper, MolecularParserWrapper
+from src.data.docktgrid_mods import ComplexView, MolecularParserWrapper
 class ComplexDataset(Dataset):
     """
     generates protein-ligand complexes on the fly
@@ -20,6 +20,8 @@ class ComplexDataset(Dataset):
         self.rotate = config.rotate
         self.translation = config.translation
         self.struct_paths = self.get_complex_paths()
+        self.ligand_channels = config.ligand_channels
+        self.protein_channels = config.protein_channels
 
         self.voxelizer = VoxelGrid(
             views=[ComplexView()],
@@ -49,7 +51,12 @@ class ComplexDataset(Dataset):
                 dtype=torch.float16)
             complex.ligand_center += translation_vector
         vox = self.voxelizer.voxelize(complex)
-        return vox
+        lig_vox = vox[self.ligand_channels]
+        prot_vox = vox[self.protein_channels]
+        return {
+            'ligand': lig_vox,
+            'protein': prot_vox,
+        }
 
 
 class DockstringTestDataset(ComplexDataset):

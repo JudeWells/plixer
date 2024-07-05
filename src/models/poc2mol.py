@@ -8,7 +8,7 @@ from src.models.pytorch3dunet import ResidualUNetSE3D
 from src.models.pytorch3dunet_lib.unet3d.buildingblocks import ResNetBlockSE, ResNetBlock
 from transformers.optimization import get_scheduler
 
-class Poc2MolConfig:
+class ResUnetConfig:
     def __init__(
         self,
         in_channels: int = 1,
@@ -24,6 +24,7 @@ class Poc2MolConfig:
         upsample: str = 'default',
         dropout_prob: float = 0.1,
         basic_module: ResNetBlock = ResNetBlockSE,
+        loss: Dict = None,
 
     ):
         self.in_channels = in_channels
@@ -39,6 +40,7 @@ class Poc2MolConfig:
         self.upsample = upsample
         self.dropout_prob = dropout_prob
         self.basic_module = basic_module
+        self.loss = loss
 
 
 
@@ -47,7 +49,7 @@ class Poc2MolConfig:
 class Poc2Mol(LightningModule):
     def __init__(
         self,
-        config: Poc2MolConfig,
+        config: ResUnetConfig,
         lr: float = 1e-4,
         weight_decay: float = 0.0,
         scheduler_name: str = None,
@@ -73,8 +75,8 @@ class Poc2Mol(LightningModule):
             upsample=config.upsample,
             dropout_prob=config.dropout_prob,
             basic_module=config.basic_module,
+            loss=config.loss,
         )
-        self.criterion = torch.nn.CrossEntropyLoss()  #  todo check if this is necessary for lightning
         self.lr = lr
         self.weight_decay = weight_decay
         self.scheduler_name = scheduler_name
@@ -86,22 +88,21 @@ class Poc2Mol(LightningModule):
         return self.model(pixel_values=pixel_values, labels=labels)
 
     def training_step(self, batch, batch_idx):
-        outputs = self(batch["protein"], labels=batch["ligand"])
-        loss = outputs.loss
+        outputs, loss = self(batch["protein"], labels=batch["ligand"])
         self.train_loss(loss)
         self.log("train/loss", self.train_loss, on_step=False, on_epoch=True, prog_bar=True)
         self.log("train/batch_loss", loss, on_step=True, on_epoch=False, prog_bar=True)
         return loss
 
     def validation_step(self, batch, batch_idx):
-        outputs = self(batch["protein"], labels=batch["ligand"])
+        outputs, loss = self(batch["protein"], labels=batch["ligand"])
         loss = outputs.loss
         self.val_loss(loss)
         self.log("val/loss", self.val_loss, on_step=False, on_epoch=True, prog_bar=True)
         return loss
 
     def test_step(self, batch, batch_idx):
-        outputs = self(batch["protein"], labels=batch["ligand"])
+        outputs, loss = self(batch["protein"], labels=batch["ligand"])
         pass
 
     def configure_optimizers(self) -> Dict[str, Any]:

@@ -270,14 +270,12 @@ def flatten(tensor):
     return transposed.contiguous().view(C, -1)
 
 
-def get_loss_criterion(config):
+def get_loss_criterion(loss_config):
     """
     Returns the loss function based on provided configuration
     :param config: (dict) a top level configuration object containing the 'loss' key
     :return: an instance of the loss function
     """
-    assert 'loss' in config, 'Could not find loss function configuration'
-    loss_config = config['loss']
     name = loss_config.pop('name')
 
     ignore_index = loss_config.pop('ignore_index', None)
