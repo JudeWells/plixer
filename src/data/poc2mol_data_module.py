@@ -38,11 +38,12 @@ class ComplexDataModule(LightningDataModule):
         self.test_dataset = None
 
 
+
     def train_dataloader(self):
         return DataLoader(self.train_dataset)
 
     def val_dataloader(self):
-        return DataLoader(self.val_dataset)
+        return DataLoader(self.train_dataset)
 
     def test_dataloader(self):
-        return DataLoader(self.test_dataset)
+        return DataLoader(self.train_dataset)

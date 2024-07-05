@@ -4,12 +4,11 @@ from torch.utils.data import DataLoader, Dataset
 import glob
 import numpy as np
 import pandas as pd
-from docktgrid.molecule import MolecularComplex
 from docktgrid.transforms import RandomRotation
-
+from docktgrid.molecule import MolecularComplex
 from docktgrid import VoxelGrid
 
-from src.data.mol_views import ComplexView
+from src.data.docktgrid_mods import ComplexView, MolecularComplexWrapper, MolecularParserWrapper
 class ComplexDataset(Dataset):
     """
     generates protein-ligand complexes on the fly
@@ -20,22 +19,26 @@ class ComplexDataset(Dataset):
         self.pdb_dir = config.pdb_dir
         self.rotate = config.rotate
         self.translation = config.translation
+        self.struct_paths = self.get_complex_paths()
 
         self.voxelizer = VoxelGrid(
             views=[ComplexView()],
             vox_size=config.vox_size,
             box_dims=config.box_dims,
-            complex_view=False,
         )
 
+    def get_complex_paths(self):
+        protein_paths = ['/'.join(p.split("/")[:-1]) for p in glob.glob(f"{self.pdb_dir}/*/*_protein.pdb")]
+        ligand_paths = ['/'.join(p.split("/")[:-1]) for p in glob.glob(f"{self.pdb_dir}/*/*_ligand.mol2")]
+        return sorted(list(set(protein_paths).intersection(set(ligand_paths))))
     def __len__(self):
         return len(self.pdb_dir)
 
     def __getitem__(self, idx):
-        directory = self.pdb_dir[idx]
+        directory = self.struct_paths[idx]
         pdb_path = glob.glob(os.path.join(directory, '*_protein.pdb'))[0]
         lig_path = glob.glob(os.path.join(directory, '*_ligand.mol2'))[0]
-        complex = MolecularComplex(pdb_path, lig_path)
+        complex = MolecularComplex(pdb_path, lig_path, molparser=MolecularParserWrapper())
         if self.rotate:
             rotation = RandomRotation()
             rotation(complex.coords, complex.ligand_center)

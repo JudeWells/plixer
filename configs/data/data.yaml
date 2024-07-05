@@ -1,6 +1,6 @@
-_target_: src.data.ComplexDataModule.ComplexDataModule
+_target_: src.data.poc2mol_data_module.ComplexDataModule
 config:
-  _target_: src.data.ComplexDataModule.DataConfig
+  _target_: src.data.poc2mol_data_module.DataConfig
   pdb_dir: ../PDBbind_v2020_refined-set
   rotate: true
   translation: 6.0

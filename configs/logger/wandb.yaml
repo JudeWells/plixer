@@ -7,7 +7,7 @@ wandb:
   offline: False
   id: null # pass correct id to resume experiment!
   anonymous: null # enable anonymous logging
-  project: "voxelmiles"
+  project: "poc2mol"
   log_model: False # upload lightning ckpts
   prefix: "" # a string to put at the beginning of metric keys
   group: ""

@@ -1,17 +1,16 @@
-from typing import Any, Dict
+from typing import Any, Dict, Optional
 
 import torch
 import numpy as np
 from lightning import LightningModule
 
-from pytorch3dunet import ResidualUNetSE3D
-from pytorch3dunet_lib.unet3d.buildingblocks import ResNetBlockSE, ResNetBlock
+from src.models.pytorch3dunet import ResidualUNetSE3D
+from src.models.pytorch3dunet_lib.unet3d.buildingblocks import ResNetBlockSE, ResNetBlock
 from transformers.optimization import get_scheduler
 
 class Poc2MolConfig:
     def __init__(
         self,
-        lr: float = 1e-4,
         in_channels: int = 1,
         out_channels: int = 2,
         final_sigmoid: bool = True,
@@ -27,7 +26,6 @@ class Poc2MolConfig:
         basic_module: ResNetBlock = ResNetBlockSE,
 
     ):
-        self.lr = lr
         self.in_channels = in_channels
         self.out_channels = out_channels
         self.final_sigmoid = final_sigmoid
@@ -45,10 +43,17 @@ class Poc2MolConfig:
 
 
 
+
 class Poc2Mol(LightningModule):
     def __init__(
         self,
         config: Poc2MolConfig,
+        lr: float = 1e-4,
+        weight_decay: float = 0.0,
+        scheduler_name: str = None,
+        num_warmup_steps: int = 0,
+        num_training_steps: Optional[int] = 100000,
+        num_decay_steps: int = 0,
         compile: bool = False,
     ) -> None:
         super().__init__()
@@ -69,8 +74,13 @@ class Poc2Mol(LightningModule):
             dropout_prob=config.dropout_prob,
             basic_module=config.basic_module,
         )
-
         self.criterion = torch.nn.CrossEntropyLoss()
+        self.lr = lr
+        self.weight_decay = weight_decay
+        self.scheduler_name = scheduler_name
+        self.num_warmup_steps = num_warmup_steps
+        self.num_decay_steps = num_decay_steps
+        self.num_training_steps = num_training_steps
 
     def forward(self, pixel_values, labels=None):
         return self.model(pixel_values=pixel_values, labels=labels)

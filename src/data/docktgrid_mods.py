@@ -7,10 +7,18 @@ import numpy as np
 import pandas as pd
 from docktgrid import VoxelGrid
 from docktgrid.view import BasicView, VolumeView, View
-from docktgrid.molecule import MolecularComplex
+from docktgrid.molecule import MolecularComplex, ptable, DTYPE
+from docktgrid.molparser import MolecularParser
 from docktgrid.transforms import RandomRotation, Transform
 from torch import save as torch_save
 import torch
+
+class MolecularParserWrapper(MolecularParser):
+    def __init__(self):
+        super().__init__()
+    def get_element_symbols_mol2(self) -> list[str]:
+        symbols = self.df_atom['atom_type'].apply(lambda x: x.split(".")[0])
+        return symbols
 
 class ComplexView(View):
     """

@@ -4,7 +4,7 @@ import torch
 from torch import nn as nn
 from torch.nn import functional as F
 
-from se import ChannelSELayer3D, ChannelSpatialSELayer3D, SpatialSELayer3D
+from .se import ChannelSELayer3D, ChannelSpatialSELayer3D, SpatialSELayer3D
 
 
 def create_conv(in_channels, out_channels, kernel_size, order, num_groups, padding,

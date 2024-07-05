@@ -2,7 +2,7 @@ import importlib
 import torch
 import torch.nn as nn
 
-from pytorch3dunet_lib.unet3d.buildingblocks import DoubleConv, ResNetBlock, ResNetBlockSE, \
+from src.models.pytorch3dunet_lib.unet3d.buildingblocks import DoubleConv, ResNetBlock, ResNetBlockSE, \
     create_decoders, create_encoders
 
 def number_of_features_per_level(init_channel_number, num_levels):
