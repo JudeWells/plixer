@@ -1,8 +1,12 @@
-_target_: src.data.data_module.VoxMilesDataModule
-
-data_path: "../geom/rdkit_folder/drugs"
-vox_size: 0.75
-box_dims: [24.0, 24.0, 24.0]
-max_smiles_len: 200
-batch_size: 42
-num_workers: 0
+_target_: src.data.ComplexDataModule.ComplexDataModule
+config:
+  _target_: src.data.ComplexDataModule.DataConfig
+  pdb_dir: ../PDBbind_v2020_refined-set
+  rotate: true
+  translation: 6.0
+  vox_size: 0.75
+  box_dims: [24, 24, 24]
+  batch_size: 32
+  num_workers: null
+  dtype: ${oc.select:torch.float16,torch.float16}
+  fnames: null

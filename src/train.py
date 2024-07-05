@@ -1,3 +1,4 @@
+import os
 from typing import Any, Dict, List, Optional, Tuple
 
 import hydra
@@ -20,7 +21,10 @@ from src.utils import (
     task_wrapper,
 )
 
+os.environ["HYDRA_FULL_ERROR"] = "1"
+
 log = RankedLogger(__name__, rank_zero_only=True)
+
 
 @task_wrapper
 def train(cfg: DictConfig) -> Tuple[Dict[str, Any], Dict[str, Any]]:

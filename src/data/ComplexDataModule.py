@@ -1,25 +1,42 @@
 from lightning import LightningDataModule
 from torch.utils.data import DataLoader
+from typing import Optional
+from src.data.datasets import DockstringTestDataset, ComplexDataset
+import torch
 
-class VoxMilesDataModule(LightningDataModule):
+class DataConfig:
     def __init__(
-        self,
-        data_path: str,
-        vox_size: float,
-        box_dims: list,
-        max_smiles_len: int = 256,
-        batch_size: int = 32,
-        num_workers: int = 0,
-        random_rotation: bool = True,
-        random_translation: float = 6.0,
+            self,
+            pdb_dir: str,
+            rotate: bool = False,
+            translation: float = 0.0,
+            vox_size: float = 0.75,
+            box_dims: list = [24, 24, 24],
+            batch_size: int = 32,
+            num_workers: int = 0,
+            dtype = torch.float16,
+            fnames: Optional[list] = None,
     ):
+        self.pdb_dir = pdb_dir
+        self.rotate = rotate
+        self.translation = translation
+        self.vox_size = vox_size
+        self.box_dims = box_dims
+        self.batch_size = batch_size
+        self.num_workers = num_workers
+        self.dtype = dtype
+        self.fnames = fnames
+
+class ComplexDataModule(LightningDataModule):
+    def __init__(self, config: DataConfig):
         super().__init__()
+        self.config = config
 
     def setup(self, stage: Optional[str] = None):
-        self.train_dataset = None
+        self.train_dataset = ComplexDataset(self.config)
         self.val_dataset = None
         self.test_dataset = None
-        pass
+
 
     def train_dataloader(self):
         return DataLoader(self.train_dataset)
@@ -28,4 +45,4 @@ class VoxMilesDataModule(LightningDataModule):
         return DataLoader(self.val_dataset)
 
     def test_dataloader(self):
-        return DataLoader(self.test_datset)
+        return DataLoader(self.test_dataset)
