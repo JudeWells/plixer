@@ -1,19 +1,9 @@
-import importlib
-import torch
 import torch.nn as nn
 
-from pytorch3dunet_lib.unet3d.buildingblocks import DoubleConv, ResNetBlock, ResNetBlockSE, \
+from pytorch3dunet.unet3d.buildingblocks import DoubleConv, ResNetBlock, ResNetBlockSE, \
     create_decoders, create_encoders
+from pytorch3dunet.unet3d.utils import get_class, number_of_features_per_level
 
-def number_of_features_per_level(init_channel_number, num_levels):
-    return [init_channel_number * 2 ** k for k in range(num_levels)]
-def get_class(class_name, modules):
-    for module in modules:
-        m = importlib.import_module(module)
-        clazz = getattr(m, class_name, None)
-        if clazz is not None:
-            return clazz
-    raise RuntimeError(f'Unsupported dataset class: {class_name}')
 
 class AbstractUNet(nn.Module):
     """
@@ -111,11 +101,13 @@ class AbstractUNet(nn.Module):
 
         x = self.final_conv(x)
 
-        # apply final_activation (i.e. Sigmoid or Softmax).
-        if self.final_activation is not None:
+        # apply final_activation (i.e. Sigmoid or Softmax) only during prediction.
+        # During training the network outputs logits
+        if not self.training and self.final_activation is not None:
             x = self.final_activation(x)
 
         return x
+
 
 class UNet3D(AbstractUNet):
     """
@@ -142,7 +134,6 @@ class UNet3D(AbstractUNet):
                                      conv_upscale=conv_upscale,
                                      upsample=upsample,
                                      dropout_prob=dropout_prob,
-
                                      is3d=True)
 
 
@@ -175,7 +166,7 @@ class ResidualUNet3D(AbstractUNet):
 
 class ResidualUNetSE3D(AbstractUNet):
     """_summary_
-    Residual 3DUnet model implementation with squeeze and excitation based on
+    Residual 3DUnet model implementation with squeeze and excitation based on 
     https://arxiv.org/pdf/1706.00120.pdf.
     Uses ResNetBlockSE as a basic building block, summation joining instead
     of concatenation joining and transposed convolutions for upsampling (watch
@@ -201,23 +192,58 @@ class ResidualUNetSE3D(AbstractUNet):
                                                dropout_prob=dropout_prob,
                                                is3d=True)
 
-if __name__=="__main__":
-    # Define input tensor with shape (batch_size, channels, depth, height, width)
-    depth = height = width = 32
-    in_channels = 14
-    input_tensor = torch.randn(1, in_channels, depth, height, width)  # Example shape, adjust as needed
 
-    # Instantiate each model
-    unet_3d = UNet3D(in_channels=14, out_channels=7, layer_order='bcr')
-    residual_unet_3d = ResidualUNet3D(in_channels=14, out_channels=7, layer_order='bcr')
-    residual_unet_se_3d = ResidualUNetSE3D(in_channels=14, out_channels=7, layer_order='bcr')
+class UNet2D(AbstractUNet):
+    """
+    2DUnet model from
+    `"U-Net: Convolutional Networks for Biomedical Image Segmentation" <https://arxiv.org/abs/1505.04597>`
+    """
 
-    # Pass input tensor through each model
-    output_unet_3d = unet_3d(input_tensor)
-    output_residual_unet_3d = residual_unet_3d(input_tensor)
-    output_residual_unet_se_3d = residual_unet_se_3d(input_tensor) # uses ResNetBlock followed by squeeze and excite
+    def __init__(self, in_channels, out_channels, final_sigmoid=True, f_maps=64, layer_order='gcr',
+                 num_groups=8, num_levels=4, is_segmentation=True, conv_padding=1,
+                 conv_upscale=2, upsample='default', dropout_prob=0.1, **kwargs):
+        super(UNet2D, self).__init__(in_channels=in_channels,
+                                     out_channels=out_channels,
+                                     final_sigmoid=final_sigmoid,
+                                     basic_module=DoubleConv,
+                                     f_maps=f_maps,
+                                     layer_order=layer_order,
+                                     num_groups=num_groups,
+                                     num_levels=num_levels,
+                                     is_segmentation=is_segmentation,
+                                     conv_padding=conv_padding,
+                                     conv_upscale=conv_upscale,
+                                     upsample=upsample,
+                                     dropout_prob=dropout_prob,
+                                     is3d=False)
 
-    # Check output shapes
-    print("Output shape UNet3D:", output_unet_3d.shape)
-    print("Output shape ResidualUNet3D:", output_residual_unet_3d.shape)
-    print("Output shape ResidualUNetSE3D:", output_residual_unet_se_3d.shape)
+
+class ResidualUNet2D(AbstractUNet):
+    """
+    Residual 2DUnet model implementation based on https://arxiv.org/pdf/1706.00120.pdf.
+    """
+
+    def __init__(self, in_channels, out_channels, final_sigmoid=True, f_maps=64, layer_order='gcr',
+                 num_groups=8, num_levels=5, is_segmentation=True, conv_padding=1,
+                 conv_upscale=2, upsample='default', dropout_prob=0.1, **kwargs):
+        super(ResidualUNet2D, self).__init__(in_channels=in_channels,
+                                             out_channels=out_channels,
+                                             final_sigmoid=final_sigmoid,
+                                             basic_module=ResNetBlock,
+                                             f_maps=f_maps,
+                                             layer_order=layer_order,
+                                             num_groups=num_groups,
+                                             num_levels=num_levels,
+                                             is_segmentation=is_segmentation,
+                                             conv_padding=conv_padding,
+                                             conv_upscale=conv_upscale,
+                                             upsample=upsample,
+                                             dropout_prob=dropout_prob,
+                                             is3d=False)
+
+
+def get_model(model_config):
+    model_class = get_class(model_config['name'], modules=[
+        'pytorch3dunet.unet3d.model'
+    ])
+    return model_class(**model_config)

@@ -1,0 +1,16 @@
+_target_: src.models.poc2mol.VoxToSmilesModel
+config:
+  in_channels: int = 1,
+  out_channels: int = 2,
+  final_sigmoid: bool = True,
+  f_maps: int = 64,
+  layer_order: str = 'gcr',
+  num_groups: int = 8,
+  num_levels: int = 5,
+  is_segmentation: bool = True,
+  conv_padding: int = 1,
+  conv_upscale: int = 2,
+  upsample: str = 'default',
+  dropout_prob: float = 0.1,
+  basic_module: ResNetBlock = ResNetBlockSE,
+lr: 5e-5

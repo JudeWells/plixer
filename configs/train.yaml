@@ -1,7 +1,7 @@
 defaults:
   - _self_
   - data: data.yaml
-  - model: vox2smiles.yaml
+  - model: poc2mol.yaml
   - callbacks: default.yaml
   - logger: wandb.yaml
   - trainer: default.yaml
@@ -9,7 +9,7 @@ defaults:
   - extras: default.yaml
   - hydra: default.yaml
 
-task_name: "vox_to_smiles"
+task_name: "poc2mol"
 tags: ["dev"]
 train: True
 test: True
