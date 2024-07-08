@@ -1,3 +1,4 @@
+import os
 from typing import Any, Dict, Optional
 
 import torch
@@ -7,6 +8,8 @@ from lightning import LightningModule
 from src.models.pytorch3dunet import ResidualUNetSE3D
 from src.models.pytorch3dunet_lib.unet3d.buildingblocks import ResNetBlockSE, ResNetBlock
 from transformers.optimization import get_scheduler
+
+from src.evaluation.visual import show_3d_voxel_lig_only, visualise_batch
 
 class ResUnetConfig:
     def __init__(
@@ -56,6 +59,7 @@ class Poc2Mol(LightningModule):
         num_warmup_steps: int = 0,
         num_training_steps: Optional[int] = 100000,
         num_decay_steps: int = 0,
+        img_save_dir: str = None,
         compile: bool = False,
     ) -> None:
         super().__init__()
@@ -83,6 +87,7 @@ class Poc2Mol(LightningModule):
         self.num_warmup_steps = num_warmup_steps
         self.num_decay_steps = num_decay_steps
         self.num_training_steps = num_training_steps
+        self.img_save_dir = img_save_dir
 
     def forward(self, prot_vox, labels=None):
         return self.model(x=prot_vox, labels=labels)
@@ -95,6 +100,17 @@ class Poc2Mol(LightningModule):
 
     def validation_step(self, batch, batch_idx):
         outputs, loss = self(batch["protein"], labels=batch["ligand"])
+        if batch_idx in [0, 30, 50]:
+            save_dir = f"{self.img_save_dir}/val"
+            lig, pred, names = batch["ligand"][:4], outputs[:4], batch["name"][:4]
+            visualise_batch(
+                lig,
+                pred,
+                names,
+                save_dir=save_dir,
+                batch=str(batch_idx)
+            )
+
         self.log("val/loss", loss, on_step=False, on_epoch=True, prog_bar=True)
         return loss
 

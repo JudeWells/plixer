@@ -16,3 +16,5 @@ output_dir: ${hydra:runtime.output_dir}
 
 # path to working directory
 work_dir: ${hydra:runtime.cwd}
+
+img_save_dir: ${paths.output_dir}/images

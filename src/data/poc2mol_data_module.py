@@ -1,3 +1,5 @@
+import os
+
 from lightning import LightningDataModule
 from torch.utils.data import DataLoader
 from typing import Optional
@@ -8,28 +10,22 @@ class DataConfig:
     def __init__(
             self,
             pdb_dir: str,
-            rotate: bool = False,
-            translation: float = 0.0,
-            vox_size: float = 0.75,
-            box_dims: list = [24, 24, 24],
+            vox_config,
             batch_size: int = 32,
-            num_workers: int = 0,
             dtype=torch.float16,
             ligand_channels: list[int] = [0, 1, 2, 3, 4, 5],
             protein_channels: list[int] = [6, 7, 8, 9, 10, 11],
             fnames: Optional[list] = None,
+            max_atom_dist: Optional[float] = 24.0,
     ):
         self.pdb_dir = pdb_dir
-        self.rotate = rotate
-        self.translation = translation
-        self.vox_size = vox_size
-        self.box_dims = box_dims
+        self.vox_config = vox_config
         self.batch_size = batch_size
-        self.num_workers = num_workers
         self.dtype = dtype
         self.fnames = fnames
         self.ligand_channels = ligand_channels
         self.protein_channels = protein_channels
+        self.max_atom_dist = max_atom_dist
 
 
 class ComplexDataModule(LightningDataModule):
@@ -45,10 +41,22 @@ class ComplexDataModule(LightningDataModule):
 
 
     def train_dataloader(self):
-        return DataLoader(self.train_dataset)
+        return DataLoader(
+            self.train_dataset,
+            batch_size=self.config.batch_size,
+            shuffle=True,
+        )
 
     def val_dataloader(self):
-        return DataLoader(self.train_dataset)
+        return DataLoader(
+            self.train_dataset,
+            batch_size=self.config.batch_size,
+            shuffle=False,
+        )
 
     def test_dataloader(self):
-        return DataLoader(self.train_dataset)
+        return DataLoader(
+            self.train_dataset,
+            batch_size=self.config.batch_size,
+            shuffle=False,
+        )

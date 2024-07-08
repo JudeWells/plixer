@@ -17,22 +17,52 @@ class ComplexDataset(Dataset):
     def __init__(self, config):
         self.config = config
         self.pdb_dir = config.pdb_dir
-        self.rotate = config.rotate
-        self.translation = config.translation
+        self.rotate = config.vox_config.random_rotation
+        self.random_translation = config.vox_config.random_translation
         self.struct_paths = self.get_complex_paths()
         self.ligand_channels = config.ligand_channels
         self.protein_channels = config.protein_channels
+        self.max_atom_dist = config.max_atom_dist
 
         self.voxelizer = VoxelGrid(
-            views=[ComplexView()],
-            vox_size=config.vox_size,
-            box_dims=config.box_dims,
+            views=[ComplexView(config.vox_config)],
+            vox_size=config.vox_config.vox_size,
+            box_dims=config.vox_config.box_dims,
         )
 
     def get_complex_paths(self):
         protein_paths = ['/'.join(p.split("/")[:-1]) for p in glob.glob(f"{self.pdb_dir}/*/*_protein.pdb")]
         ligand_paths = ['/'.join(p.split("/")[:-1]) for p in glob.glob(f"{self.pdb_dir}/*/*_ligand.mol2")]
         return sorted(list(set(protein_paths).intersection(set(ligand_paths))))
+
+    def prune_far_atoms(self, complex: MolecularComplex):
+        ligand_center = complex.ligand_center
+        dists = torch.linalg.vector_norm(
+            complex.coords.T - ligand_center, dim=1
+        )
+        mask = dists < self.max_atom_dist
+        complex.coords = complex.coords[:, mask]
+        complex.vdw_radii = complex.vdw_radii[mask]
+        complex.element_symbols = complex.element_symbols[mask]
+        complex.n_atoms = complex.coords.shape[1]
+
+        lig_dists = torch.linalg.vector_norm(
+            complex.ligand_data.coords.T - ligand_center, dim=1
+        )
+        mask = lig_dists < self.max_atom_dist
+        complex.ligand_data.coords = complex.ligand_data.coords[:, mask]
+        complex.ligand_data.element_symbols = complex.ligand_data.element_symbols[mask.numpy()]
+        complex.n_atoms_ligand = complex.ligand_data.coords.shape[1]
+
+        prot_dists = torch.linalg.vector_norm(
+            complex.protein_data.coords.T - ligand_center, dim=1
+        )
+        mask = prot_dists < self.max_atom_dist
+        complex.protein_data.coords = complex.protein_data.coords[:, mask]
+        complex.protein_data.element_symbols = complex.protein_data.element_symbols[mask]
+        complex.n_atoms_protein = complex.protein_data.coords.shape[1]
+
+        return complex
     def __len__(self):
         return len(self.struct_paths)
 
@@ -45,21 +75,25 @@ class ComplexDataset(Dataset):
         except:
             bp=1
             complex = MolecularComplex(pdb_path, lig_path, molparser=MolecularParserWrapper())
+        if self.max_atom_dist:
+            complex = self.prune_far_atoms(complex)
         if self.rotate:
             rotation = RandomRotation()
             rotation(complex.coords, complex.ligand_center)
-        if self.translation:
-            translation_vector_length = np.random.uniform(0, self.translation)
+        if self.random_translation:
+            translation_vector_length = np.random.uniform(0, self.random_translation)
             translation_vector = torch.tensor(
                 np.random.uniform(-1, 1, 3) * translation_vector_length,
                 dtype=torch.float16)
             complex.ligand_center += translation_vector
+
         vox = self.voxelizer.voxelize(complex)
         lig_vox = vox[self.ligand_channels]
         prot_vox = vox[self.protein_channels]
         return {
             'ligand': lig_vox,
             'protein': prot_vox,
+            'name': directory.split('/')[-1]
         }
 
 

@@ -5,6 +5,7 @@ import argparse
 import shutil
 import gzip
 import numpy as np
+from omegaconf import DictConfig
 import pandas as pd
 from docktgrid import VoxelGrid
 from docktgrid.view import BasicView, VolumeView, View
@@ -48,64 +49,57 @@ class MolecularParserWrapper(MolecularParser):
             return chars[0]
 
 class ComplexView(View):
-    """
-    The `x` below stands for any other chemical element different from CHONS.
 
-    Protein channels (in this order):
-        carbon, hydrogen, oxygen, nitrogen, sulfur, x*.
-    Ligand channels:
-        carbon, hydrogen, oxygen, nitrogen, sulfur, x*.
-    """
+    def __init__(self, vox_config: DictConfig):
+        super().__init__()
+        self.cfg = vox_config
 
     def get_num_channels(self):
-        return sum((6, 6))
+        return len(self.cfg.protein_channels) + len(self.cfg.ligand_channels)
 
     def get_channels_names(self):
-        chs = ["carbon", "hydrogen", "oxygen", "nitrogen", "sulfur", "other"]
         return (
-                + [f"{ch}_protein" for ch in chs]
-                + [f"{ch}_ligand" for ch in chs]
+                + [f"{ch}_protein" for ch in self.cfg.protein_channel_names]
+                + [f"{ch}_ligand" for ch in self.cfg.ligand_channel_names]
         )
 
     def get_molecular_complex_channels(
             self, molecular_complex: MolecularComplex
     ) -> torch.Tensor:
         """Set of channels for all atoms."""
-
-        channels = {
-            0: ["C"],
-            1: ["H"],
-            2: ["O"],
-            3: ["N"],
-            4: ["S"],
-            5: ["C", "H", "O", "N", "S"],
-        }
-        nchs = len(channels)
-
+        raise NotImplementedError("This method should not be called.")
         # get a list of bools representing each atom in each channel
         symbs = molecular_complex.element_symbols
-        chs = np.asarray([np.isin(symbs, channels[c]) for c in range(nchs)])
+        chs = np.asarray(
+            [np.isin(
+                symbs,
+                self.cfg.ligand_channel_names[c]
+            ) for c in range(len(self.cfg.ligand_channels))]
+        )
 
-        # invert bools in last channel, since it represents any atom except CHONS
+        # invert bools in last channel, since it represents any atom except those explicitly defined
         np.invert(chs[-1], out=chs[-1])
-
         return torch.from_numpy(chs)
 
     def get_ligand_channels(self, molecular_complex: MolecularComplex) -> torch.Tensor:
         """Set of channels for ligand atoms."""
-        chs = self.get_molecular_complex_channels(molecular_complex)
-
-        # exclude protein atoms from ligand channels
-        chs[..., : -molecular_complex.n_atoms_ligand] = False
-        return chs
+        symbs = molecular_complex.element_symbols[-molecular_complex.n_atoms_ligand:]
+        chs = np.asarray(
+            [np.isin(
+                symbs,
+                self.cfg.ligand_channels[c]
+            ) for c in range(len(self.cfg.ligand_channels))])
+        np.invert(chs[-1], out=chs[-1])
+        return torch.from_numpy(chs)
 
     def get_protein_channels(self, molecular_complex: MolecularComplex) -> torch.Tensor:
         """Set of channels for protein atoms."""
-        chs = self.get_molecular_complex_channels(molecular_complex)
-
-        # exclude ligand atoms from protein channels
-        chs[..., -molecular_complex.n_atoms_ligand:] = False
-        return chs
+        symbs = molecular_complex.element_symbols[:-molecular_complex.n_atoms_ligand]
+        chs = np.asarray(
+            [np.isin(symbs, self.cfg.protein_channels[c]
+            ) for c in range(len(self.cfg.protein_channels))])
+        np.invert(chs[-1], out=chs[-1])
+        return torch.from_numpy(chs)
 
     def __call__(self, molecular_complex: MolecularComplex) -> torch.Tensor:
         """Concatenate all channels in a single tensor.
@@ -120,9 +114,10 @@ class ComplexView(View):
         """
         protein = self.get_protein_channels(molecular_complex)
         ligand = self.get_ligand_channels(molecular_complex)
-        return torch.cat(
-            (
-                protein if protein is not None else torch.tensor([], dtype=torch.bool),
-                ligand if ligand is not None else torch.tensor([], dtype=torch.bool),
-            ),
+        joined = torch.zeros(
+            size=(max(protein.shape[0], ligand.shape[0]), molecular_complex.n_atoms),
         )
+        joined[:protein.shape[0], :molecular_complex.n_atoms_protein] = protein
+        joined[:ligand.shape[0], -molecular_complex.n_atoms_ligand:] = ligand
+        return joined.bool()
+
