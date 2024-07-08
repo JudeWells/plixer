@@ -40,7 +40,11 @@ class ComplexDataset(Dataset):
         directory = self.struct_paths[idx]
         pdb_path = glob.glob(os.path.join(directory, '*_protein.pdb'))[0]
         lig_path = glob.glob(os.path.join(directory, '*_ligand.mol2'))[0]
-        complex = MolecularComplex(pdb_path, lig_path, molparser=MolecularParserWrapper())
+        try:
+            complex = MolecularComplex(pdb_path, lig_path, molparser=MolecularParserWrapper())
+        except:
+            bp=1
+            complex = MolecularComplex(pdb_path, lig_path, molparser=MolecularParserWrapper())
         if self.rotate:
             rotation = RandomRotation()
             rotation(complex.coords, complex.ligand_center)
