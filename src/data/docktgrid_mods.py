@@ -83,21 +83,23 @@ class ComplexView(View):
 
     def get_ligand_channels(self, molecular_complex: MolecularComplex) -> torch.Tensor:
         """Set of channels for ligand atoms."""
-        symbs = molecular_complex.element_symbols[-molecular_complex.n_atoms_ligand:]
+        symbs = molecular_complex.element_symbols
         chs = np.asarray(
             [np.isin(
                 symbs,
                 self.cfg.ligand_channels[c]
             ) for c in range(len(self.cfg.ligand_channels))])
+        chs[..., : -molecular_complex.n_atoms_ligand] = False
         np.invert(chs[-1], out=chs[-1])
         return torch.from_numpy(chs)
 
     def get_protein_channels(self, molecular_complex: MolecularComplex) -> torch.Tensor:
         """Set of channels for protein atoms."""
-        symbs = molecular_complex.element_symbols[:-molecular_complex.n_atoms_ligand]
+        symbs = molecular_complex.element_symbols
         chs = np.asarray(
             [np.isin(symbs, self.cfg.protein_channels[c]
             ) for c in range(len(self.cfg.protein_channels))])
+        chs[..., -molecular_complex.n_atoms_ligand:] = False
         np.invert(chs[-1], out=chs[-1])
         return torch.from_numpy(chs)
 
@@ -114,10 +116,10 @@ class ComplexView(View):
         """
         protein = self.get_protein_channels(molecular_complex)
         ligand = self.get_ligand_channels(molecular_complex)
-        joined = torch.zeros(
-            size=(max(protein.shape[0], ligand.shape[0]), molecular_complex.n_atoms),
-        )
-        joined[:protein.shape[0], :molecular_complex.n_atoms_protein] = protein
-        joined[:ligand.shape[0], -molecular_complex.n_atoms_ligand:] = ligand
-        return joined.bool()
+        return torch.cat(
+            (
+                protein if protein is not None else torch.tensor([], dtype=torch.bool),
+                ligand if ligand is not None else torch.tensor([], dtype=torch.bool),
+            ),
+        ).bool()
 

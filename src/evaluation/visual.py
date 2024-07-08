@@ -1,8 +1,9 @@
 import os
+import shutil
 import numpy as np
 import matplotlib.pyplot as plt
-from mpl_toolkits.mplot3d import Axes3D
 import matplotlib.colors as mcolors
+import wandb
 
 
 def show_3d_voxel_lig_only(vox, angles=None, save_dir=None, identifier='lig'):
@@ -26,7 +27,7 @@ def show_3d_voxel_lig_only(vox, angles=None, save_dir=None, identifier='lig'):
     if angles is None:
         angles = [(45, 45), (15, 90), (0, 30), (45, -45)]
 
-    fig = plt.figure(figsize=(8, 8))
+    fig = plt.figure(figsize=(6, 6))
     ax = fig.add_subplot(111, projection='3d')
 
     # Iterate over each channel and plot the voxels with corresponding colors
@@ -71,10 +72,14 @@ def visualise_batch(lig, pred, names, angles=None, save_dir=None, batch='none'):
     colors[3] = mcolors.to_rgba('blue')  # nitrogen_ligand
     colors[4] = mcolors.to_rgba('yellow')  # sulfur_ligand
     colors[5] = mcolors.to_rgba('magenta')  # other_ligand
+    colors[6] = mcolors.to_rgba('magenta')  # other_ligand
+    colors[7] = mcolors.to_rgba('magenta')  # other_ligand
+    colors[8] = mcolors.to_rgba('magenta')  # other_ligand
+    colors[9] = mcolors.to_rgba('cyan')  # other_ligand
 
     # Set transparency for all colors
     colors[:, 3] = 0.2
-    fig, axs = plt.subplots(nrows=len(names), ncols=len(angles) * 2, figsize=(20, 30))
+    fig, axs = plt.subplots(nrows=len(names), ncols=len(angles) * 2, figsize=(10, 15))
 
     for i, single_name in enumerate(names):
         for ang_idx, angle in enumerate(angles):
@@ -82,7 +87,7 @@ def visualise_batch(lig, pred, names, angles=None, save_dir=None, batch='none'):
             label_save_path = os.path.join(label_save_dir, f"{single_name}_{ang_idx}.png")
             if not os.path.exists(label_save_path):
                 # generate and save the label image
-                fig_label = plt.figure(figsize=(8, 8))
+                fig_label = plt.figure(figsize=(5, 5))
                 ax_label = fig_label.add_subplot(111, projection='3d')
                 ax_label.grid(False)  # Turn off the grid
                 ax_label.set_xticks([])  # Turn off x ticks
@@ -130,8 +135,10 @@ def visualise_batch(lig, pred, names, angles=None, save_dir=None, batch='none'):
             axs[i, ang_idx * 2 + 1].set_ylim(upper_third, lower_third)
             axs[i, ang_idx * 2 + 1].axis('off')
             axs[i, ang_idx * 2 + 1].set_title(f'Pred {single_name}:{angle}')
-
+    shutil.rmtree(pred_save_dir)
     plt.tight_layout()
     plt.subplots_adjust(wspace=0.1, hspace=0.1)
-    plt.savefig(os.path.join(save_dir, f'batch_{batch}_visualisation.png'))
+    combined_image_path = os.path.join(save_dir, f'batch_{batch}_visualisation.png')
+    plt.savefig(combined_image_path)
+    wandb.log({f'batch_{batch}_visualisation': wandb.Image(combined_image_path)})
     plt.close(fig)
