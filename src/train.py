@@ -6,6 +6,7 @@ import lightning as L
 import rootutils
 import torch
 from lightning import Callback, LightningDataModule, LightningModule, Trainer
+from lightning.pytorch.callbacks import LearningRateMonitor
 from lightning.pytorch.loggers import Logger
 from omegaconf import DictConfig
 
@@ -42,6 +43,9 @@ def train(cfg: DictConfig) -> Tuple[Dict[str, Any], Dict[str, Any]]:
 
     log.info("Instantiating loggers...")
     logger: List[Logger] = instantiate_loggers(cfg.get("logger"))
+
+    lr_monitor = LearningRateMonitor(logging_interval='step')
+    callbacks.append(lr_monitor)
 
     log.info(f"Instantiating trainer <{cfg.trainer._target_}>")
     trainer: Trainer = hydra.utils.instantiate(

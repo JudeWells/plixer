@@ -102,11 +102,11 @@ def visualise_batch(lig, pred, names, angles=None, save_dir=None, batch='none'):
             # load the saved image for the label
             label_img = plt.imread(label_save_path)
             label_height, label_width, _ = label_img.shape
-            lower_third = label_height // 3
-            upper_third = 2 * label_height // 3
+            lower = label_height // 4
+            upper = label_height - lower
             axs[i, ang_idx * 2].imshow(label_img)
-            axs[i, ang_idx * 2].set_xlim(lower_third, upper_third)  # Updated cropping
-            axs[i, ang_idx * 2].set_ylim(upper_third, lower_third)
+            axs[i, ang_idx * 2].set_xlim(lower, upper)  # Updated cropping
+            axs[i, ang_idx * 2].set_ylim(upper, lower)
             axs[i, ang_idx * 2].axis('off')
             axs[i, ang_idx * 2].set_title(f'Target {single_name}:{angle}')
 
@@ -128,11 +128,11 @@ def visualise_batch(lig, pred, names, angles=None, save_dir=None, batch='none'):
             # load the saved image for the prediction
             pred_img = plt.imread(pred_save_path)
             pred_height, pred_width, _ = pred_img.shape
-            lower_third = pred_height // 3
-            upper_third = 2 * pred_height // 3
+            lower = pred_height // 4
+            upper = pred_height - lower
             axs[i, ang_idx * 2 + 1].imshow(pred_img)
-            axs[i, ang_idx * 2 + 1].set_xlim(lower_third, upper_third)  # Updated cropping
-            axs[i, ang_idx * 2 + 1].set_ylim(upper_third, lower_third)
+            axs[i, ang_idx * 2 + 1].set_xlim(lower, upper)  # Updated cropping
+            axs[i, ang_idx * 2 + 1].set_ylim(upper, lower)
             axs[i, ang_idx * 2 + 1].axis('off')
             axs[i, ang_idx * 2 + 1].set_title(f'Pred {single_name}:{angle}')
     shutil.rmtree(pred_save_dir)

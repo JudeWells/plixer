@@ -9,7 +9,6 @@ import torch
 class DataConfig:
     def __init__(
             self,
-            pdb_dir: str,
             vox_config,
             batch_size: int = 32,
             dtype=torch.float16,
@@ -18,7 +17,6 @@ class DataConfig:
             fnames: Optional[list] = None,
             max_atom_dist: Optional[float] = 24.0,
     ):
-        self.pdb_dir = pdb_dir
         self.vox_config = vox_config
         self.batch_size = batch_size
         self.dtype = dtype
@@ -29,14 +27,31 @@ class DataConfig:
 
 
 class ComplexDataModule(LightningDataModule):
-    def __init__(self, config: DataConfig):
+    def __init__(self, config: DataConfig, pdb_dir: str, val_pdb_dir: str):
         super().__init__()
         self.config = config
+        self.pdb_dir = pdb_dir
+        self.val_pdb_dir = val_pdb_dir
 
     def setup(self, stage: Optional[str] = None):
-        self.train_dataset = ComplexDataset(self.config)
-        self.val_dataset = ComplexDataset(self.config)
-        self.test_dataset = ComplexDataset(self.config)
+        self.train_dataset = ComplexDataset(
+            self.config,
+            pdb_dir=self.pdb_dir,
+            translation=self.config.vox_config.random_translation,
+            rotate=self.config.vox_config.random_rotation,
+        )
+        self.val_dataset = ComplexDataset(
+            self.config,
+            pdb_dir=self.val_pdb_dir,
+            translation=0.0,
+            rotate=False
+        )
+        self.test_dataset = ComplexDataset(
+            self.config,
+            pdb_dir=self.val_pdb_dir,
+            translation=0.0,
+            rotate=False
+        )
 
 
 
@@ -49,14 +64,14 @@ class ComplexDataModule(LightningDataModule):
 
     def val_dataloader(self):
         return DataLoader(
-            self.train_dataset,
-            batch_size=self.config.batch_size,
+            self.val_dataset,
+            batch_size=4,
             shuffle=False,
         )
 
     def test_dataloader(self):
         return DataLoader(
-            self.train_dataset,
-            batch_size=self.config.batch_size,
+            self.val_dataset,
+            batch_size=4,
             shuffle=False,
         )

@@ -14,11 +14,11 @@ class ComplexDataset(Dataset):
     generates protein-ligand complexes on the fly
     from pdb files and voxelizes them
     """
-    def __init__(self, config):
+    def __init__(self, config, pdb_dir, rotate=True, translation=0.0):
         self.config = config
-        self.pdb_dir = config.pdb_dir
-        self.rotate = config.vox_config.random_rotation
-        self.random_translation = config.vox_config.random_translation
+        self.pdb_dir = pdb_dir
+        self.rotate = rotate
+        self.random_translation = translation
         self.struct_paths = self.get_complex_paths()
         self.ligand_channels = config.ligand_channels
         self.protein_channels = config.protein_channels

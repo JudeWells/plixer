@@ -46,9 +46,6 @@ class ResUnetConfig:
         self.loss = loss
 
 
-
-
-
 class Poc2Mol(LightningModule):
     def __init__(
         self,
@@ -56,10 +53,12 @@ class Poc2Mol(LightningModule):
         lr: float = 1e-4,
         weight_decay: float = 0.0,
         scheduler_name: str = None,
-        num_warmup_steps: int = 0,
         num_training_steps: Optional[int] = 100000,
+        num_warmup_steps: int = 0,
         num_decay_steps: int = 0,
         img_save_dir: str = None,
+        scheduler_kwargs: Dict[str, Any] = None,
+        matmul_precision: str = 'high',
         compile: bool = False,
     ) -> None:
         super().__init__()
@@ -84,10 +83,12 @@ class Poc2Mol(LightningModule):
         self.lr = lr
         self.weight_decay = weight_decay
         self.scheduler_name = scheduler_name
-        self.num_warmup_steps = num_warmup_steps
+        self.scheduler_kwargs = scheduler_kwargs
         self.num_decay_steps = num_decay_steps
         self.num_training_steps = num_training_steps
+        self.num_warmup_steps = num_warmup_steps
         self.img_save_dir = img_save_dir
+        torch.set_float32_matmul_precision(matmul_precision)
 
     def forward(self, prot_vox, labels=None):
         return self.model(x=prot_vox, labels=labels)
@@ -100,16 +101,15 @@ class Poc2Mol(LightningModule):
 
     def validation_step(self, batch, batch_idx):
         outputs, loss = self(batch["protein"], labels=batch["ligand"])
-        if batch_idx in [0, 30, 50]:
-            save_dir = f"{self.img_save_dir}/val"
-            lig, pred, names = batch["ligand"][:4], outputs[:4], batch["name"][:4]
-            visualise_batch(
-                lig,
-                pred,
-                names,
-                save_dir=save_dir,
-                batch=str(batch_idx)
-            )
+        save_dir = f"{self.img_save_dir}/val"
+        lig, pred, names = batch["ligand"][:4], outputs[:4], batch["name"][:4]
+        visualise_batch(
+            lig,
+            pred,
+            names,
+            save_dir=save_dir,
+            batch=str(batch_idx)
+        )
 
         self.log("val/loss", loss, on_step=False, on_epoch=True, prog_bar=True)
         return loss
@@ -126,16 +126,13 @@ class Poc2Mol(LightningModule):
             betas=(0.9, 0.95),
             eps=1e-5,
         )
-        optim_dict = {"optimizer": optimizer}
         if self.scheduler_name is not None:
             scheduler = get_scheduler(
                 self.scheduler_name,
                 optimizer,
                 num_warmup_steps=self.num_warmup_steps,
                 num_training_steps=self.num_training_steps,
+                scheduler_specific_kwargs=self.scheduler_kwargs,
             )
-            optim_dict["lr_scheduler"] = {
-                "scheduler": scheduler,
-                "interval": "step",
-            }
-        return optim_dict
+
+        return [optimizer], [scheduler]
