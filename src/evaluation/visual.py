@@ -36,6 +36,11 @@ def show_3d_voxel_lig_only(vox, angles=None, save_dir=None, identifier='lig'):
     # Iterate over each angle and save the image
     for i, angle in enumerate(angles):
         ax.view_init(elev=angle[0], azim=angle[1])
+        ax.axis('off')
+        ax.grid(False)  # Turn off the grid
+        ax.set_xticks([])  # Turn off x ticks
+        ax.set_yticks([])  # Turn off y ticks
+        ax.set_zticks([])  #
         if save_dir is not None:
             os.makedirs(save_dir, exist_ok=True)
             plt.savefig(f"{save_dir}/{identifier}_angle_{i + 1}.png")
@@ -142,3 +147,51 @@ def visualise_batch(lig, pred, names, angles=None, save_dir=None, batch='none'):
     plt.savefig(combined_image_path)
     wandb.log({f'batch_{batch}_visualisation': wandb.Image(combined_image_path)})
     plt.close(fig)
+
+
+if __name__=="__main__":
+    import yaml
+    from torch.utils.data import DataLoader
+    from src.data.poc2mol_datasets import ComplexDataset
+    from src.data.poc2mol_data_module import DataConfig
+
+    with open('configs/data/data.yaml', 'r') as file:
+        yaml_config = yaml.safe_load(file)
+
+    pdb_dir = "/mnt/disk2/VoxelDiffOuter/1b38"
+    config = DataConfig(yaml_config['config'])
+    class DictToClass:
+        def __init__(self, dictionary):
+            for key, value in dictionary.items():
+                setattr(self, key, value)
+    vox_config = DictToClass(yaml_config['config']['vox_config'])
+    config.vox_config = vox_config
+    dataset = ComplexDataset(
+        config=config,
+        pdb_dir=pdb_dir
+    )
+    loader = DataLoader(dataset, batch_size=1, shuffle=False)
+    for batch in loader:
+        # visualise_batch(
+        #     batch["ligand"],
+        #     batch["protein"],
+        #     batch["name"],
+        #     angles=None,
+        #     save_dir=pdb_dir,
+        #     batch='none'
+        # )
+        show_3d_voxel_lig_only(
+            batch["ligand"].squeeze(0),
+            angles=None,
+            save_dir=pdb_dir,
+            identifier='1b38_pocket'
+        )
+
+        show_3d_voxel_lig_only(
+            batch["protein"].squeeze(0),
+            angles=None,
+            save_dir=pdb_dir,
+            identifier='1b38_ligand'
+        )
+
+        break

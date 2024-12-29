@@ -3,7 +3,7 @@ import os
 from lightning import LightningDataModule
 from torch.utils.data import DataLoader
 from typing import Optional
-from src.data.datasets import DockstringTestDataset, ComplexDataset
+from src.data.poc2mol_datasets import DockstringTestDataset, ComplexDataset
 import torch
 
 class DataConfig:

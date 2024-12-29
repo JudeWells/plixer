@@ -1,9 +1,10 @@
+import os
+import sys
 import torch
 from lightning import LightningModule
 from torchmetrics import MeanMetric
 from src.evaluation.visual import visualise_batch
 from src.models.poc2mol import Poc2Mol
-from ../voxmiles/src/models/vox2smiles import VoxToSmilesModel
 
 
 class CombinedProteinToSmilesModel(LightningModule):
