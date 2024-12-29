@@ -314,25 +314,6 @@ class Decoder(nn.Module):
     A single module for decoder path consisting of the upsampling layer
     (either learned ConvTranspose3d or nearest neighbor interpolation)
     followed by a basic module (DoubleConv or ResNetBlock).
-
-    Args:
-        in_channels (int): number of input channels
-        out_channels (int): number of output channels
-        conv_kernel_size (int or tuple): size of the convolving kernel
-        scale_factor (int or tuple): used as the multiplier for the image H/W/D in
-            case of nn.Upsample or as stride in case of ConvTranspose3d, must reverse the MaxPool3d operation
-            from the corresponding encoder
-        basic_module(nn.Module): either ResNetBlock or DoubleConv
-        conv_layer_order (string): determines the order of layers
-            in `DoubleConv` module. See `DoubleConv` for more info.
-        num_groups (int): number of groups for the GroupNorm
-        padding (int or tuple): add zero-padding added to all three sides of the input
-        upsample (str): algorithm used for upsampling:
-            InterpolateUpsampling:   'nearest' | 'linear' | 'bilinear' | 'trilinear' | 'area'
-            TransposeConvUpsampling: 'deconv'
-            No upsampling:           None
-            Default: 'default' (chooses automatically)
-        dropout_prob (float or tuple): dropout probability, default 0.1
     """
 
     def __init__(self, in_channels, out_channels, conv_kernel_size=3, scale_factor=2, basic_module=DoubleConv,
@@ -363,12 +344,10 @@ class Decoder(nn.Module):
                                                           kernel_size=conv_kernel_size, scale_factor=scale_factor,
                                                           is3d=is3d)
             else:
-                self.upsampling = InterpolateUpsampling(mode=upsample)
+                self.upsampling = InterpolateUpsampling(mode=upsample, scale_factor=scale_factor)
         else:
             # no upsampling
             self.upsampling = NoUpsampling()
-            # concat joining
-            self.joining = partial(self._joining, concat=True)
 
         # perform joining operation
         self.joining = partial(self._joining, concat=concat)
@@ -388,7 +367,8 @@ class Decoder(nn.Module):
 
     def forward(self, encoder_features, x):
         x = self.upsampling(encoder_features=encoder_features, x=x)
-        x = self.joining(encoder_features, x)
+        if encoder_features is not None:
+            x = self.joining(encoder_features, x)
         x = self.basic_module(x)
         return x
 
@@ -467,13 +447,21 @@ class AbstractUpsampling(nn.Module):
     interpolation or learned transposed convolution.
     """
 
-    def __init__(self, upsample):
+    def __init__(self, upsample, scale_factor=2):
         super(AbstractUpsampling, self).__init__()
         self.upsample = upsample
+        self.scale_factor = scale_factor
 
     def forward(self, encoder_features, x):
-        # get the spatial dimensions of the output given the encoder_features
-        output_size = encoder_features.size()[2:]
+        if encoder_features is None:
+            # If no encoder features, just scale up by scale_factor
+            if isinstance(self.scale_factor, int):
+                output_size = tuple(dim * self.scale_factor for dim in x.size()[2:])
+            else:
+                output_size = tuple(dim * f for dim, f in zip(x.size()[2:], self.scale_factor))
+        else:
+            # get the spatial dimensions of the output given the encoder_features
+            output_size = encoder_features.size()[2:]
         # upsample the input and return
         return self.upsample(x, output_size)
 
@@ -483,12 +471,12 @@ class InterpolateUpsampling(AbstractUpsampling):
     Args:
         mode (str): algorithm used for upsampling:
             'nearest' | 'linear' | 'bilinear' | 'trilinear' | 'area'. Default: 'nearest'
-            used only if transposed_conv is False
+        scale_factor (int or tuple): scaling factor for upsampling when encoder_features is None
     """
 
-    def __init__(self, mode='nearest'):
+    def __init__(self, mode='nearest', scale_factor=2):
         upsample = partial(self._interpolate, mode=mode)
-        super().__init__(upsample)
+        super().__init__(upsample, scale_factor)
 
     @staticmethod
     def _interpolate(x, size, mode):
