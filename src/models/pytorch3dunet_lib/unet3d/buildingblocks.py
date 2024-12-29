@@ -181,19 +181,29 @@ class ResNetBlock(nn.Module):
     """
     Residual block that can be used instead of standard DoubleConv in the Encoder module.
     Motivated by: https://arxiv.org/pdf/1706.00120.pdf
-
-    Notice we use ELU instead of ReLU (order='cge') and put non-linearity after the groupnorm.
     """
 
     def __init__(self, in_channels, out_channels, kernel_size=3, order='cge', num_groups=8, is3d=True, **kwargs):
         super(ResNetBlock, self).__init__()
 
+        # Check if we're using skip connections and if we're in encoder/decoder
+        skip_connections = kwargs.get('skip_connections', True)
+        encoder = kwargs.get('encoder', True)
+        
         if in_channels != out_channels:
             # conv1x1 for increasing the number of channels
             if is3d:
-                self.conv1 = nn.Conv3d(in_channels, out_channels, 1)
+                if not encoder and skip_connections:
+                    # In decoder with skip connections, input channels are doubled
+                    self.conv1 = nn.Conv3d(in_channels * 2, out_channels, 1)
+                else:
+                    # In encoder or decoder without skip connections
+                    self.conv1 = nn.Conv3d(in_channels, out_channels, 1)
             else:
-                self.conv1 = nn.Conv2d(in_channels, out_channels, 1)
+                if not encoder and skip_connections:
+                    self.conv1 = nn.Conv2d(in_channels * 2, out_channels, 1)
+                else:
+                    self.conv1 = nn.Conv2d(in_channels, out_channels, 1)
         else:
             self.conv1 = nn.Identity()
 
@@ -318,27 +328,26 @@ class Decoder(nn.Module):
 
     def __init__(self, in_channels, out_channels, conv_kernel_size=3, scale_factor=2, basic_module=DoubleConv,
                  conv_layer_order='gcr', num_groups=8, padding=1, upsample='default',
-                 dropout_prob=0.1, is3d=True):
+                 dropout_prob=0.1, is3d=True, skip_connections=True):
         super(Decoder, self).__init__()
 
         # perform concat joining per default
-        concat = True
+        concat = skip_connections
 
         # don't adapt channels after join operation
-        adapt_channels = False
+        adapt_channels = not skip_connections
 
         if upsample is not None and upsample != 'none':
             if upsample == 'default':
                 if basic_module == DoubleConv:
-                    upsample = 'nearest'  # use nearest neighbor interpolation for upsampling
-                    concat = True  # use concat joining
-                    adapt_channels = False  # don't adapt channels
+                    upsample = 'nearest'
+                    concat = skip_connections
+                    adapt_channels = False
                 elif basic_module == ResNetBlock or basic_module == ResNetBlockSE:
-                    upsample = 'deconv'  # use deconvolution upsampling
-                    concat = False  # use summation joining
-                    adapt_channels = True  # adapt channels after joining
+                    upsample = 'deconv'
+                    concat = False
+                    adapt_channels = True
 
-            # perform deconvolution upsampling if mode is deconv
             if upsample == 'deconv':
                 self.upsampling = TransposeConvUpsampling(in_channels=in_channels, out_channels=out_channels,
                                                           kernel_size=conv_kernel_size, scale_factor=scale_factor,
@@ -346,14 +355,11 @@ class Decoder(nn.Module):
             else:
                 self.upsampling = InterpolateUpsampling(mode=upsample, scale_factor=scale_factor)
         else:
-            # no upsampling
             self.upsampling = NoUpsampling()
 
-        # perform joining operation
         self.joining = partial(self._joining, concat=concat)
 
-        # adapt the number of in_channels for the ResNetBlock
-        if adapt_channels is True:
+        if adapt_channels:
             in_channels = out_channels
 
         self.basic_module = basic_module(in_channels, out_channels,
@@ -363,7 +369,8 @@ class Decoder(nn.Module):
                                          num_groups=num_groups,
                                          padding=padding,
                                          dropout_prob=dropout_prob,
-                                         is3d=is3d)
+                                         is3d=is3d,
+                                         skip_connections=skip_connections)
 
     def forward(self, encoder_features, x):
         x = self.upsampling(encoder_features=encoder_features, x=x)
@@ -415,28 +422,29 @@ def create_encoders(in_channels, f_maps, basic_module, conv_kernel_size, conv_pa
     return nn.ModuleList(encoders)
 
 
-def create_decoders(f_maps, basic_module, conv_kernel_size, conv_padding, layer_order,
-                    num_groups, upsample, dropout_prob, is3d):
-    # create decoder path consisting of the Decoder modules. The length of the decoder list is equal to `len(f_maps) - 1`
+def create_decoders(f_maps, basic_module, conv_kernel_size, conv_padding, layer_order, num_groups, upsample, dropout_prob, is3d=True, skip_connections=True):
+    # Reverse feature maps to match encoder path
+    f_maps = list(reversed(f_maps))
     decoders = []
-    reversed_f_maps = list(reversed(f_maps))
-    for i in range(len(reversed_f_maps) - 1):
-        if basic_module == DoubleConv and upsample != 'deconv':
-            in_feature_num = reversed_f_maps[i] + reversed_f_maps[i + 1]
+    
+    for i in range(len(f_maps) - 1):
+        if skip_connections:
+            in_feature_num = f_maps[i] + f_maps[i]  # Double for skip connection
         else:
-            in_feature_num = reversed_f_maps[i]
-
-        out_feature_num = reversed_f_maps[i + 1]
-
+            in_feature_num = f_maps[i]  # No skip connection
+            
+        out_feature_num = f_maps[i + 1]
+        
         decoder = Decoder(in_feature_num, out_feature_num,
-                          basic_module=basic_module,
-                          conv_layer_order=layer_order,
-                          conv_kernel_size=conv_kernel_size,
-                          num_groups=num_groups,
-                          padding=conv_padding,
-                          upsample=upsample,
-                          dropout_prob=dropout_prob,
-                          is3d=is3d)
+                         basic_module=basic_module,
+                         conv_layer_order=layer_order,
+                         conv_kernel_size=conv_kernel_size,
+                         num_groups=num_groups,
+                         padding=conv_padding,
+                         upsample=upsample,
+                         dropout_prob=dropout_prob,
+                         is3d=is3d,
+                         skip_connections=skip_connections)
         decoders.append(decoder)
     return nn.ModuleList(decoders)
 

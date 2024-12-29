@@ -123,3 +123,66 @@ class ComplexView(View):
             ),
         ).bool()
 
+class UnifiedAtomView(View):
+    """
+    A view that creates channels based on atom types, treating protein and ligand atoms the same.
+    Each channel represents a specific element type (C, H, O, N, S, etc.) regardless of whether 
+    the atom belongs to the protein or ligand.
+    """
+    
+    def __init__(self, element_channels=None):
+        super().__init__()
+        # Default channels if none provided
+        self.element_channels = element_channels or {
+            0: ["C"],    # Carbon channel
+            1: ["H"],    # Hydrogen channel
+            2: ["O"],    # Oxygen channel
+            3: ["N"],    # Nitrogen channel
+            4: ["S"],    # Sulfur channel
+            5: ["Cl"],   # Chlorine channel
+            6: ["F"],    # Fluorine channel
+            7: ["I"],    # Iodine channel
+            8: ["Br"],   # Bromine channel
+            9: ["C", "H", "O", "N", "S", "Cl", "F", "I", "Br"]
+        }
+        
+    def get_num_channels(self):
+        """Return the total number of channels."""
+        return len(self.element_channels)
+        
+    def get_channels_names(self):
+        """Return names for each channel."""
+        # Create descriptive names for each channel
+        names = []
+        for idx, elements in self.element_channels.items():
+            if len(elements) == 1:
+                names.append(f"{elements[0]}_atoms")
+            else:
+                names.append("other_atoms")
+        return names
+        
+    def get_molecular_complex_channels(self, molecular_complex: MolecularComplex) -> torch.Tensor:
+        """Create channels for all atoms based on their element type."""
+        symbs = molecular_complex.element_symbols
+        chs = np.asarray([
+            np.isin(symbs, elements) 
+            for elements in self.element_channels.values()
+        ])
+        
+        # Invert the last channel to capture all non-CHONS atoms
+        np.invert(chs[-1], out=chs[-1])
+        
+        return torch.from_numpy(chs)
+        
+    def get_protein_channels(self, molecular_complex: MolecularComplex) -> None:
+        """Not used in unified view."""
+        return None
+        
+    def get_ligand_channels(self, molecular_complex: MolecularComplex) -> None:
+        """Not used in unified view."""
+        return None
+        
+    def __call__(self, molecular_complex: MolecularComplex) -> torch.Tensor:
+        """Override to only return molecular complex channels."""
+        return self.get_molecular_complex_channels(molecular_complex)
+

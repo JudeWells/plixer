@@ -151,12 +151,105 @@ class DockstringTestDataset(ComplexDataset):
         return len(self.voxel_files)
 
 
+class StructuralPretrainDataset(Dataset):
+    """
+    Dataset for pre-training structural autoencoder.
+    Generates voxelizations centered on random protein atoms.
+    Uses UnifiedAtomView to create unified atom-type channels.
+    """
+    def __init__(self, config, pdb_dir, rotate=True):
+        self.config = config
+        self.pdb_dir = pdb_dir
+        self.rotate = rotate
+        self.struct_paths = self.get_structure_paths()
+        self.max_atom_dist = config.max_atom_dist
+
+        # Initialize UnifiedAtomView with specified channels
+        self.unified_view = UnifiedAtomView(
+            element_channels={
+                0: ["C"],    # Carbon channel
+                1: ["N"],    # Nitrogen channel
+                2: ["O"],    # Oxygen channel
+                3: ["S"],    # Sulfur channel
+                4: ["P"],    # Phosphorus channel
+                5: ["F", "Cl", "Br", "I"],  # Halogens channel
+                6: ["Zn", "Fe", "Mg", "Ca", "Na", "K"],  # Metals channel
+                7: ["C", "N", "O", "S", "P", "F", "Cl", "Br", "I", 
+                    "Zn", "Fe", "Mg", "Ca", "Na", "K"]  # All atoms channel
+            }
+        )
+
+        self.voxelizer = VoxelGrid(
+            views=[self.unified_view],
+            vox_size=config.vox_config.vox_size,
+            box_dims=config.vox_config.box_dims,
+        )
+
+    def get_structure_paths(self):
+        """Get all PDB files in the directory."""
+        return sorted(glob.glob(f"{self.pdb_dir}/**/*.pdb", recursive=True))
+
+    def select_random_center(self, complex: MolecularComplex) -> torch.Tensor:
+        """Select a random protein atom as the center."""
+        protein_coords = complex.protein_data.coords
+        num_atoms = protein_coords.shape[1]
+        random_idx = torch.randint(0, num_atoms, (1,))
+        return protein_coords[:, random_idx].squeeze()
+
+    def prune_far_atoms(self, complex: MolecularComplex, center: torch.Tensor):
+        """Remove atoms beyond max_atom_dist from the center."""
+        dists = torch.linalg.vector_norm(
+            complex.coords.T - center, dim=1
+        )
+        mask = dists < self.max_atom_dist
+        complex.coords = complex.coords[:, mask]
+        complex.vdw_radii = complex.vdw_radii[mask]
+        complex.element_symbols = complex.element_symbols[mask]
+        complex.n_atoms = complex.coords.shape[1]
+        return complex
+
+    def __len__(self):
+        return len(self.struct_paths)
+
+    def __getitem__(self, idx):
+        pdb_path = self.struct_paths[idx]
+        try:
+            # Load structure as MolecularComplex (protein only)
+            complex = MolecularComplex(pdb_path, None, molparser=MolecularParserWrapper())
+            
+            # Select random center
+            center = self.select_random_center(complex)
+            
+            # Store original center for reference
+            complex.ligand_center = center  # Required by voxelizer
+            
+            # Prune distant atoms
+            if self.max_atom_dist:
+                complex = self.prune_far_atoms(complex, center)
+            
+            # Apply random rotation if specified
+            if self.rotate:
+                rotation = RandomRotation()
+                rotation(complex.coords, center)
+
+            # Voxelize the structure
+            vox = self.voxelizer.voxelize(complex)
+            
+            return {
+                'input': vox,  # Input is same as target for autoencoder
+                'name': os.path.basename(pdb_path)
+            }
+            
+        except Exception as e:
+            print(f"Error processing {pdb_path}: {str(e)}")
+            # Return first item as fallback
+            return self.__getitem__(0)
+
 
 def build_loaders(config, dtype):
     path_to_split_csv = '../LP-PDBBind/dataset/LP_PDBBind.csv'
     df = pd.read_csv(path_to_split_csv)
     df.columns = ['pdb_id'] + list(df.columns)[1:]
-    VoxelDataset = LigMaskDataset
     train_dataloader = DataLoader(VoxelDataset(config, fnames=df[df.new_split == 'train'].pdb_id.values, dtype=dtype),
                                   batch_size=config['batch_size'], shuffle=config.get('shufffle', True))
     val_dataloader =  DataLoader(VoxelDataset(config, fnames=df[df.new_split == 'val'].pdb_id.values,

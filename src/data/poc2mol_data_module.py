@@ -3,7 +3,7 @@ import os
 from lightning import LightningDataModule
 from torch.utils.data import DataLoader
 from typing import Optional
-from src.data.poc2mol_datasets import DockstringTestDataset, ComplexDataset
+from src.data.poc2mol_datasets import DockstringTestDataset, ComplexDataset, StructuralPretrainDataset
 import torch
 
 class DataConfig:
@@ -74,4 +74,48 @@ class ComplexDataModule(LightningDataModule):
             self.val_dataset,
             batch_size=4,
             shuffle=False,
+        )
+
+
+class StructuralPretrainDataModule(LightningDataModule):
+    """
+    DataModule for pre-training structural autoencoder.
+    """
+    def __init__(self, config: DataConfig, train_pdb_dir: str, val_pdb_dir: str):
+        super().__init__()
+        self.config = config
+        self.train_pdb_dir = train_pdb_dir
+        self.val_pdb_dir = val_pdb_dir
+
+    def setup(self, stage: Optional[str] = None):
+        # Create training dataset with rotations
+        self.train_dataset = StructuralPretrainDataset(
+            self.config,
+            pdb_dir=self.train_pdb_dir,
+            rotate=True
+        )
+        
+        # Create validation dataset without rotations
+        self.val_dataset = StructuralPretrainDataset(
+            self.config,
+            pdb_dir=self.val_pdb_dir,
+            rotate=False
+        )
+
+    def train_dataloader(self):
+        return DataLoader(
+            self.train_dataset,
+            batch_size=self.config.batch_size,
+            shuffle=True,
+            num_workers=4,
+            pin_memory=True
+        )
+
+    def val_dataloader(self):
+        return DataLoader(
+            self.val_dataset,
+            batch_size=self.config.batch_size,
+            shuffle=False,
+            num_workers=4,
+            pin_memory=True
         )
