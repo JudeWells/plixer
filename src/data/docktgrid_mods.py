@@ -10,7 +10,7 @@ import pandas as pd
 from docktgrid import VoxelGrid
 from docktgrid.view import BasicView, VolumeView, View
 from docktgrid.molecule import MolecularComplex, ptable, DTYPE
-from docktgrid.molparser import MolecularParser
+from docktgrid.molparser import MolecularData, MolecularParser, Parser
 from docktgrid.transforms import RandomRotation, Transform
 from torch import save as torch_save
 import torch
@@ -185,4 +185,45 @@ class UnifiedAtomView(View):
     def __call__(self, molecular_complex: MolecularComplex) -> torch.Tensor:
         """Override to only return molecular complex channels."""
         return self.get_molecular_complex_channels(molecular_complex)
+
+class ProteinComplex(MolecularComplex):
+    """A modified MolecularComplex that handles protein-only structures."""
+    
+    def __init__(
+        self,
+        protein_file: str | MolecularData,
+        molparser: Parser | None = MolecularParser(),
+        path="",
+    ):
+        """Initialize ProteinComplex with only protein structure.
+        
+        Args:
+            protein_file: Path to the protein file or a MolecularData object
+            molparser: A MolecularParser object
+            path: Path to the files
+        """
+        # Parse protein data
+        if isinstance(protein_file, MolecularData):
+            self.protein_data = protein_file
+        else:
+            self.protein_data: MolecularData = molparser.parse_file(
+                os.path.join(path, protein_file), os.path.splitext(protein_file)[1]
+            )
+
+        # Create dummy ligand data with a single atom at origin
+        dummy_coords = torch.zeros((3, 1), dtype=DTYPE)
+        dummy_symbols = np.array(['C'])  # Single carbon atom
+        self.ligand_data = MolecularData(None, dummy_coords, dummy_symbols)
+        
+        # Initialize other attributes
+        self.coords = self.protein_data.coords
+        self.n_atoms = self.coords.shape[1]
+        self.n_atoms_protein = self.n_atoms
+        self.n_atoms_ligand = 0  # No real ligand atoms
+        
+        self.element_symbols = self.protein_data.element_symbols
+        self.vdw_radii = self._get_vdw_radii()
+        
+        # Set ligand center to None initially - will be set externally
+        self.ligand_center = None
 

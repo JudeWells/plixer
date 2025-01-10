@@ -1,0 +1,14 @@
+_target_: src.data.poc2mol_data_module.StructuralPretrainDataModule
+train_pdb_dir: ../PDBbind_v2020_refined-set  # Adjust path as needed
+val_pdb_dir: ../validation_PDBbind  # Adjust path as needed
+
+config:
+  _target_: src.data.poc2mol_data_module.DataConfig
+  batch_size: 24
+  dtype: ${oc.select:torch.float16,torch.float16}
+  max_atom_dist: 24.0
+  vox_config:
+    vox_size: 0.75
+    box_dims: [24.0, 24.0, 24.0]
+    random_rotation: true
+    random_translation: 0.0  # No translation needed for pretraining 

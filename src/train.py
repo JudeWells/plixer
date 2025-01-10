@@ -5,10 +5,15 @@ import hydra
 import lightning as L
 import rootutils
 import torch
+import multiprocessing
 from lightning import Callback, LightningDataModule, LightningModule, Trainer
 from lightning.pytorch.callbacks import LearningRateMonitor
 from lightning.pytorch.loggers import Logger
 from omegaconf import DictConfig
+
+# Set multiprocessing start method to 'spawn'
+if __name__ == "__main__":
+    multiprocessing.set_start_method('spawn', force=True)
 
 rootutils.setup_root(__file__, indicator=".project-root", pythonpath=True)
 

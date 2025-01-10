@@ -32,6 +32,7 @@ class ComplexDataModule(LightningDataModule):
         self.config = config
         self.pdb_dir = pdb_dir
         self.val_pdb_dir = val_pdb_dir
+        self.save_hyperparameters(ignore=['config'])
 
     def setup(self, stage: Optional[str] = None):
         self.train_dataset = ComplexDataset(
@@ -60,6 +61,8 @@ class ComplexDataModule(LightningDataModule):
             self.train_dataset,
             batch_size=self.config.batch_size,
             shuffle=True,
+            pin_memory=True,
+            num_workers=4,
         )
 
     def val_dataloader(self):
@@ -67,6 +70,8 @@ class ComplexDataModule(LightningDataModule):
             self.val_dataset,
             batch_size=4,
             shuffle=False,
+            pin_memory=True,
+            num_workers=4,
         )
 
     def test_dataloader(self):
@@ -81,25 +86,27 @@ class StructuralPretrainDataModule(LightningDataModule):
     """
     DataModule for pre-training structural autoencoder.
     """
-    def __init__(self, config: DataConfig, train_pdb_dir: str, val_pdb_dir: str):
+    def __init__(self, config: DataConfig, train_pdb_dir: str, val_pdb_dir: str, num_workers: int = 4):
         super().__init__()
         self.config = config
         self.train_pdb_dir = train_pdb_dir
         self.val_pdb_dir = val_pdb_dir
-
+        self.batch_size = config.batch_size
+        self.num_workers = num_workers
+        self.save_hyperparameters(ignore=['config'])
     def setup(self, stage: Optional[str] = None):
         # Create training dataset with rotations
         self.train_dataset = StructuralPretrainDataset(
             self.config,
             pdb_dir=self.train_pdb_dir,
-            rotate=True
+            rotate=True,
         )
         
         # Create validation dataset without rotations
         self.val_dataset = StructuralPretrainDataset(
             self.config,
             pdb_dir=self.val_pdb_dir,
-            rotate=False
+            rotate=False,
         )
 
     def train_dataloader(self):
@@ -107,8 +114,8 @@ class StructuralPretrainDataModule(LightningDataModule):
             self.train_dataset,
             batch_size=self.config.batch_size,
             shuffle=True,
-            num_workers=4,
-            pin_memory=True
+            pin_memory=True,
+            num_workers=self.num_workers
         )
 
     def val_dataloader(self):
@@ -116,6 +123,6 @@ class StructuralPretrainDataModule(LightningDataModule):
             self.val_dataset,
             batch_size=self.config.batch_size,
             shuffle=False,
-            num_workers=4,
+            num_workers=self.num_workers,
             pin_memory=True
         )

@@ -8,7 +8,13 @@ from docktgrid.transforms import RandomRotation
 from docktgrid.molecule import MolecularComplex
 from docktgrid import VoxelGrid
 
-from src.data.docktgrid_mods import ComplexView, MolecularParserWrapper
+from src.data.docktgrid_mods import (
+    ComplexView, 
+    MolecularParserWrapper, 
+    UnifiedAtomView,
+    ProteinComplex
+)
+
 class ComplexDataset(Dataset):
     """
     generates protein-ligand complexes on the fly
@@ -160,7 +166,7 @@ class StructuralPretrainDataset(Dataset):
     def __init__(self, config, pdb_dir, rotate=True):
         self.config = config
         self.pdb_dir = pdb_dir
-        self.rotate = rotate
+        self.rotate = config.vox_config.random_rotation
         self.struct_paths = self.get_structure_paths()
         self.max_atom_dist = config.max_atom_dist
 
@@ -187,7 +193,7 @@ class StructuralPretrainDataset(Dataset):
 
     def get_structure_paths(self):
         """Get all PDB files in the directory."""
-        return sorted(glob.glob(f"{self.pdb_dir}/**/*.pdb", recursive=True))
+        return glob.glob(f"{self.pdb_dir}/**/*.pdb", recursive=True)
 
     def select_random_center(self, complex: MolecularComplex) -> torch.Tensor:
         """Select a random protein atom as the center."""
@@ -214,14 +220,14 @@ class StructuralPretrainDataset(Dataset):
     def __getitem__(self, idx):
         pdb_path = self.struct_paths[idx]
         try:
-            # Load structure as MolecularComplex (protein only)
-            complex = MolecularComplex(pdb_path, None, molparser=MolecularParserWrapper())
+            # Load structure as ProteinComplex instead of MolecularComplex
+            complex = ProteinComplex(pdb_path, molparser=MolecularParserWrapper())
             
             # Select random center
             center = self.select_random_center(complex)
             
-            # Store original center for reference
-            complex.ligand_center = center  # Required by voxelizer
+            # Set the center as ligand_center (required by voxelizer)
+            complex.ligand_center = center
             
             # Prune distant atoms
             if self.max_atom_dist:
@@ -236,7 +242,7 @@ class StructuralPretrainDataset(Dataset):
             vox = self.voxelizer.voxelize(complex)
             
             return {
-                'input': vox,  # Input is same as target for autoencoder
+                'input': vox.cpu(),  # Input is same as target for autoencoder
                 'name': os.path.basename(pdb_path)
             }
             

@@ -1,0 +1,23 @@
+_target_: src.models.structural_autoencoder.StructuralAutoEncoder
+
+# Model parameters
+in_channels: 8  # Matches number of channels in UnifiedAtomView
+f_maps: 64
+latent_dim: 512
+num_levels: 5
+layer_order: 'gcr'
+num_groups: 8
+conv_padding: 1
+dropout_prob: 0.1
+
+# Training parameters
+lr: 1e-3
+weight_decay: 1e-5
+
+# Loss configuration
+loss:
+    name: BCEDiceLoss
+    weight: null
+    normalization: null
+    alpha: 0.2 # BCE weight
+    beta: 1 # DICE weight

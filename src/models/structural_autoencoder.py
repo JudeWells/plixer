@@ -186,14 +186,14 @@ class StructuralAutoEncoder(LightningModule):
         return self.decode(z), z
 
     def training_step(self, batch, batch_idx):
-        x = batch["protein"]  # Use protein channels as input
+        x = batch["input"]  # Use protein channels as input
         recon, z = self(x)
         loss = self.loss_fn(recon, x)
         self.log("train/loss", loss, on_step=False, on_epoch=True, prog_bar=True)
         return loss
 
     def validation_step(self, batch, batch_idx):
-        x = batch["protein"]
+        x = batch["input"]
         recon, z = self(x)
         loss = self.loss_fn(recon, x)
         self.log("val/loss", loss, on_step=False, on_epoch=True, prog_bar=True)

@@ -1,0 +1,14 @@
+# @package _global_
+
+defaults:
+  - structural_pretrain
+
+trainer:
+  max_epochs: 2
+  limit_train_batches: 0.01
+  limit_val_batches: 0.01
+  accelerator: cpu
+  devices: 1
+
+data:
+  batch_size: 4 
