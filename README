@@ -1,0 +1,16 @@
+use this python:
+/mnt/disk2/VoxelDiffOuter/VenvVoxDiff/bin/python
+
+source ../VenvVoxDiff/bin/activate
+
+12/01/2025
+use branch struct_encoder for structural autoencoder
+
+trained model can be found here:
+logs/poc2mol/runs/2025-01-08_20-24-57/checkpoints/epoch_020.ckpt
+
+config can be found here:
+logs/poc2mol/runs/2025-01-08_20-24-57/.hydra/config.yaml
+
+wandb of trained model can be found here:
+https://wandb.ai/ProFam/poc2mol_pretrain/runs/43jclsh0
