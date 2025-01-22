@@ -3,7 +3,8 @@ from setuptools import setup, find_packages
 setup(
     name="voxeldiff2",
     version="0.1",
-    packages=find_packages(),
+    package_dir={"": "src"},
+    packages=find_packages(where="src"),
     install_requires=[
         "aiohttp==3.9.5",
         "aiosignal==1.3.1",
@@ -16,7 +17,7 @@ setup(
         "contourpy==1.2.1",
         "cycler==0.12.1",
         "docker-pycreds==0.4.0",
-        "docktgrid==0.0.2",
+        "docktgrid @ git+https://github.com/gmmsb-lncc/docktgrid.git",
         "filelock==3.15.3",
         "fonttools==4.53.0",
         "frozenlist==1.4.1",

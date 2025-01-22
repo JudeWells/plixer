@@ -6,7 +6,7 @@ source ../VenvVoxDiff/bin/activate
 12/01/2025
 use branch struct_encoder for structural autoencoder
 
-trained model can be found here:
+trained model can be found here (trained on kaspian):
 logs/poc2mol/runs/2025-01-08_20-24-57/checkpoints/epoch_020.ckpt
 
 config can be found here:

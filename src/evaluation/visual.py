@@ -6,19 +6,21 @@ import matplotlib.colors as mcolors
 import wandb
 
 
-def show_3d_voxel_lig_only(vox, angles=None, save_dir=None, identifier='lig'):
+def show_3d_voxel_lig_only(vox, angles=None, save_dir=None, identifier='lig', colors=None):
     if not isinstance(vox, np.ndarray):
         vox = vox.detach().cpu().numpy()
     vox = (vox > 0.5).astype(int)
-    vox = vox[:6]  # only ligand channels
-    # Define colors for each atom type
-    colors = np.zeros((vox.shape[0], 4))
-    colors[0] = mcolors.to_rgba('green')  # carbon_ligand
-    colors[1] = mcolors.to_rgba('white')  # hydrogen_ligand
-    colors[2] = mcolors.to_rgba('red')  # oxygen_ligand
-    colors[3] = mcolors.to_rgba('blue')  # nitrogen_ligand
-    colors[4] = mcolors.to_rgba('yellow')  # sulfur_ligand
-    colors[5] = mcolors.to_rgba('magenta')  # other_ligand
+    vox = vox[:len(colors)]
+    if colors is None:
+        vox = vox[:6]  # only ligand channels
+        # Define colors for each atom type
+        colors = np.zeros((vox.shape[0], 4))
+        colors[0] = mcolors.to_rgba('green')  # carbon_ligand
+        colors[1] = mcolors.to_rgba('white')  # hydrogen_ligand
+        colors[2] = mcolors.to_rgba('red')  # oxygen_ligand
+        colors[3] = mcolors.to_rgba('blue')  # nitrogen_ligand
+        colors[4] = mcolors.to_rgba('yellow')  # sulfur_ligand
+        colors[5] = mcolors.to_rgba('magenta')  # other_ligand
 
     # Set transparency for all colors
     colors[:, 3] = 0.2

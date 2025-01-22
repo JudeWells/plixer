@@ -15,6 +15,8 @@ from src.data.docktgrid_mods import (
     ProteinComplex
 )
 
+from src.constants import _3_to_num
+
 class ComplexDataset(Dataset):
     """
     generates protein-ligand complexes on the fly
@@ -163,13 +165,13 @@ class StructuralPretrainDataset(Dataset):
     Generates voxelizations centered on random protein atoms.
     Uses UnifiedAtomView to create unified atom-type channels.
     """
-    def __init__(self, config, pdb_dir, rotate=True):
+    def __init__(self, config, pdb_dir, rotate=True, use_ca=False):
         self.config = config
         self.pdb_dir = pdb_dir
         self.rotate = config.vox_config.random_rotation
         self.struct_paths = self.get_structure_paths()
         self.max_atom_dist = config.max_atom_dist
-
+        self.use_ca = use_ca
         # Initialize UnifiedAtomView with specified channels
         self.unified_view = UnifiedAtomView(
             element_channels={
@@ -201,6 +203,32 @@ class StructuralPretrainDataset(Dataset):
         num_atoms = protein_coords.shape[1]
         random_idx = torch.randint(0, num_atoms, (1,))
         return protein_coords[:, random_idx].squeeze()
+    
+    def select_random_ca(self, complex: MolecularComplex) -> tuple[torch.Tensor, str]:
+        """select a random CA atom as the center
+        also returns the AA type of the CA atom
+        """
+        atom_df = complex.protein_data.molecule_object.df["ATOM"]
+        ca_mask = atom_df["atom_name"] == "CA"
+        ca_indices = atom_df[ca_mask].index
+        random_idx = np.random.choice(len(ca_indices))
+        resname = atom_df.loc[ca_indices[random_idx], "residue_name"]
+        fail_count = 0
+        while resname not in _3_to_num and fail_count < 10:
+            random_idx = np.random.choice(len(ca_indices))
+            resname = atom_df.loc[ca_indices[random_idx], "residue_name"]
+            fail_count += 1
+        coords = complex.protein_data.coords[:, ca_indices[random_idx]].squeeze()
+        # check that coords matches the value in the df:
+        try:
+            assert abs(atom_df.loc[ca_indices[random_idx], "x_coord"] - coords[0]) < 1e-3
+            assert abs(atom_df.loc[ca_indices[random_idx], "y_coord"] - coords[1]) < 1e-3
+            assert abs(atom_df.loc[ca_indices[random_idx], "z_coord"] - coords[2]) < 1e-3
+        except AssertionError:
+            print(f"coords: {coords}, resname: {resname}")
+            bp=1
+        return coords, resname
+    
 
     def prune_far_atoms(self, complex: MolecularComplex, center: torch.Tensor):
         """Remove atoms beyond max_atom_dist from the center."""
@@ -224,7 +252,11 @@ class StructuralPretrainDataset(Dataset):
             complex = ProteinComplex(pdb_path, molparser=MolecularParserWrapper())
             
             # Select random center
-            center = self.select_random_center(complex)
+            if self.use_ca: 
+                center, aa_type = self.select_random_ca(complex)
+            else:
+                center = self.select_random_center(complex)
+                aa_type = None
             
             # Set the center as ligand_center (required by voxelizer)
             complex.ligand_center = center
@@ -243,7 +275,8 @@ class StructuralPretrainDataset(Dataset):
             
             return {
                 'input': vox.cpu(),  # Input is same as target for autoencoder
-                'name': os.path.basename(pdb_path)
+                'name': os.path.basename(pdb_path),
+                'aa_type': aa_type
             }
             
         except Exception as e:
