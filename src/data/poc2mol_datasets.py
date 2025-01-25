@@ -273,11 +273,13 @@ class StructuralPretrainDataset(Dataset):
             # Voxelize the structure
             vox = self.voxelizer.voxelize(complex)
             
-            return {
+            example = {
                 'input': vox.cpu(),  # Input is same as target for autoencoder
                 'name': os.path.basename(pdb_path),
-                'aa_type': aa_type
             }
+            if self.use_ca:
+                example['aa_type'] = aa_type
+            return example
             
         except Exception as e:
             print(f"Error processing {pdb_path}: {str(e)}")

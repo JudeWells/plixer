@@ -529,7 +529,7 @@ class TransposeConvUpsampling(AbstractUpsampling):
             conv_transposed = nn.ConvTranspose2d(in_channels, out_channels, kernel_size=kernel_size,
                                                  stride=scale_factor, padding=1, bias=False)
         upsample = self.Upsample(conv_transposed, is3d)
-        super().__init__(upsample)
+        super().__init__(upsample, scale_factor=scale_factor)
 
 
 class NoUpsampling(AbstractUpsampling):

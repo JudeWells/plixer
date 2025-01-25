@@ -54,7 +54,8 @@ def create_structural_encoders(in_channels, f_maps, basic_module, conv_kernel_si
 
 def create_structural_decoders(f_maps, basic_module, conv_kernel_size, conv_padding,
                              layer_order, num_groups, dropout_prob, is3d=True,
-                             half_decoder_layers: bool = False
+                             half_decoder_layers: bool = False,
+                             half_decoder_channels: bool = False
                              ):
     """
     Create decoder path for structural autoencoder. Each decoder increases spatial dimensions by 2x.
@@ -73,7 +74,9 @@ def create_structural_decoders(f_maps, basic_module, conv_kernel_size, conv_padd
     # Reverse feature maps to match encoder path
     f_maps = list(reversed(f_maps))
     decoders = []
-    
+
+    if half_decoder_channels:
+        f_maps = [f_maps[i] // 2 for i in range(0, len(f_maps))]
     # Create decoders - 
     if half_decoder_layers:
         # each one upsamples by 4x
@@ -87,7 +90,7 @@ def create_structural_decoders(f_maps, basic_module, conv_kernel_size, conv_padd
                             conv_kernel_size=conv_kernel_size,
                             num_groups=num_groups,
                             padding=conv_padding,
-                            scale_factor=8,  # upsample by 4x
+                            scale_factor=4,  # upsample by 4x
                             upsample='deconv',  # Use transposed conv for upsampling
                             dropout_prob=dropout_prob,
                             is3d=is3d,
@@ -133,8 +136,11 @@ class StructuralVariationalAutoEncoder(LightningModule):
         weight_decay: float = 0.0,
         loss=None,
         half_decoder_layers: bool = False,
+        half_decoder_channels: bool = False,
+        beta: float = 1.0
     ):
         super().__init__()
+        self.beta = beta
         self.save_hyperparameters(logger=False)
         
         if isinstance(f_maps, int):
@@ -158,10 +164,14 @@ class StructuralVariationalAutoEncoder(LightningModule):
         self.to_logvar = nn.Conv3d(f_maps[-1], latent_dim, kernel_size=2, stride=2)
         
         # Decoder first layer: transform from latent to first decoder size
+        if half_decoder_channels:
+            out_channels = f_maps[-1] // 2
+        else:
+            out_channels = f_maps[-1]
         self.from_latent = nn.Sequential(
-            nn.ConvTranspose3d(latent_dim, f_maps[-1],
+            nn.ConvTranspose3d(latent_dim, out_channels,
                                kernel_size=2, stride=2),
-            nn.GroupNorm(num_groups, f_maps[-1]),
+            nn.GroupNorm(num_groups, out_channels),
             nn.ReLU(inplace=True)
         )
         
@@ -175,11 +185,16 @@ class StructuralVariationalAutoEncoder(LightningModule):
             num_groups=num_groups,
             dropout_prob=dropout_prob,
             is3d=True,
-            half_decoder_layers=half_decoder_layers
+            half_decoder_layers=half_decoder_layers,
+            half_decoder_channels=half_decoder_channels
         )
         
         # Final conv to map back to input channels
-        self.final_conv = nn.Conv3d(f_maps[0], in_channels, kernel_size=1)
+        if half_decoder_channels:
+            final_conv_in = f_maps[0] // 2
+        else:
+            final_conv_in = f_maps[0]
+        self.final_conv = nn.Conv3d(final_conv_in, in_channels, kernel_size=1)
         
         # Reconstruction loss
         self.loss_fn = get_loss_criterion(loss) if loss else nn.MSELoss()
@@ -224,11 +239,12 @@ class StructuralVariationalAutoEncoder(LightningModule):
         # KL divergence term
         kl = -0.5 * torch.mean(torch.sum(1 + logvar - mu.pow(2) - logvar.exp(), dim=(1,2,3,4)))
 
-        loss = recon_loss + kl
+        loss = recon_loss + self.beta * kl
 
-        self.log("train/loss", loss, on_step=False, on_epoch=True, prog_bar=True)
-        self.log("train/recon_loss", recon_loss, on_step=False, on_epoch=True, prog_bar=True)
-        self.log("train/kl", kl, on_step=False, on_epoch=True, prog_bar=True)
+        self.log("train/loss", loss, on_step=True, on_epoch=True, prog_bar=True)
+        self.log("train/recon_loss", recon_loss, on_step=True, on_epoch=True, prog_bar=True)
+        self.log("train/kl", kl, on_step=True, on_epoch=True, prog_bar=True)
+        self.log("train/logvar", logvar, on_step=True, on_epoch=True, prog_bar=True)
         return loss
 
     def validation_step(self, batch, batch_idx):
@@ -244,6 +260,7 @@ class StructuralVariationalAutoEncoder(LightningModule):
         self.log("val/loss", loss, on_step=False, on_epoch=True, prog_bar=True)
         self.log("val/recon_loss", recon_loss, on_step=False, on_epoch=True, prog_bar=True)
         self.log("val/kl", kl, on_step=False, on_epoch=True, prog_bar=True)
+        self.log("val/logvar", logvar, on_step=True, on_epoch=True, prog_bar=True)
         return loss
 
     def configure_optimizers(self):
@@ -279,7 +296,8 @@ if __name__ == "__main__":
         latent_dim=512,  # Size of latent embedding
         num_levels=5,    # Number of down/up-sampling levels
         loss=loss_config,
-        half_decoder_layers=True
+        half_decoder_layers=True,
+        half_decoder_channels=True
     )
     print(model)
     # Get embeddings
@@ -287,4 +305,4 @@ if __name__ == "__main__":
     mu, logvar = model.encode(x)        # Mean and logvariance
     z = model.reparameterize(mu, logvar)# Sample from latent
     recon = model.decode(z)            # Reconstruct input
-    bp = 1
+    print(recon.shape)
