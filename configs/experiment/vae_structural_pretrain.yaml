@@ -1,37 +1,40 @@
 # @package _global_
 
 defaults:
-  - override /data: structural_pretrain_pinder
+  - override /data: structural_pretrain_cath_pdb
   - override /model: structural_autoencoder
   - override /callbacks: default
   - override /trainer: default
 
 task_name: "vae_pretrain"
 
-tags: ["structural_pretrain", "autoencoder"]
+tags: ["structural_pretrain", "autoencoder", "vae", "cath_pdb"]
 
 seed: 42
 
 data:
   num_workers: 2
-
+  config:
+    batch_size: 30
+  
 trainer:
-  max_epochs: 10000
+  max_epochs: 1000000
   gradient_clip_val: 1.0
   accumulate_grad_batches: 2
   precision: bf16-mixed
   
   # Validation settings
-  check_val_every_n_epoch: 1
-  val_check_interval: 0.25
+  check_val_every_n_epoch: null
+  val_check_interval: 10000
 
 model:
   _target_: src.models.structural_vae.StructuralVariationalAutoEncoder
-  lr: 1e-3
-  weight_decay: 1e-5
+  lr: 3e-4
+  weight_decay: 1e-4
   half_decoder_layers: true
   half_decoder_channels: true
-  beta: 1.0
+  beta: 0.00005
+  disable_vae: false
 
 
 logger:

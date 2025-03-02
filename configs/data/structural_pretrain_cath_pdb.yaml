@@ -1,12 +1,13 @@
 _target_: src.data.poc2mol_data_module.StructuralPretrainDataModule
-train_pdb_dir: /mnt/disk2/pinder/pinder/2024-02
+train_pdb_dir: /mnt/disk2/VoxelDiffOuter/whole_pdb/goodchainpdb
 val_pdb_dir: ../validation_PDBbind  # Adjust path as needed
 
 config:
   _target_: src.data.poc2mol_data_module.DataConfig
-  batch_size: 20
+  batch_size: 30
   dtype: ${oc.select:torch.float16,torch.float16}
   max_atom_dist: 24.0
+  coord_indices: null
   vox_config:
     vox_size: 0.75
     box_dims: [24.0, 24.0, 24.0]

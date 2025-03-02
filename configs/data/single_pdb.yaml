@@ -1,14 +1,15 @@
 _target_: src.data.poc2mol_data_module.StructuralPretrainDataModule
-train_pdb_dir: /mnt/disk2/pinder/pinder/2024-02
-val_pdb_dir: ../validation_PDBbind  # Adjust path as needed
+train_pdb_dir: /mnt/disk2/plinder/2024-06/v2/systems/6zzs__1__1.B__1.I_1.J
+val_pdb_dir: /mnt/disk2/plinder/2024-06/v2/systems/6zzs__1__1.B__1.I_1.J
 
 config:
   _target_: src.data.poc2mol_data_module.DataConfig
-  batch_size: 20
+  batch_size: 12
   dtype: ${oc.select:torch.float16,torch.float16}
   max_atom_dist: 24.0
+  coord_indices: [100, 300, 500, 700, 900]
   vox_config:
     vox_size: 0.75
     box_dims: [24.0, 24.0, 24.0]
-    random_rotation: true
+    random_rotation: false
     random_translation: 0.0  # No translation needed for pretraining 

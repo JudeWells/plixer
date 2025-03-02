@@ -22,6 +22,7 @@ from lightning.pytorch.loggers import WandbLogger
 # Imports from this codebase
 from src.data.poc2mol_datasets import StructuralPretrainDataset, ProteinComplex, MolecularParserWrapper
 from src.models.structural_autoencoder import StructuralAutoEncoder
+from src.models.structural_vae import StructuralVariationalAutoEncoder
 from src.evaluation.visual import show_3d_voxel_lig_only, visualise_batch
 from src.data.poc2mol_data_module import DataConfig
 from src.constants import _3_to_1, _3_to_num
@@ -112,7 +113,11 @@ def generate_and_visualize_samples(model, dataset, num_samples=10, save_dir="out
             sample = dataset[idx]
             inp = sample["input"].unsqueeze(0).to(device)
             name = sample["name"]
-            recon, _ = model(inp)
+            result = model(inp)
+            if len(result) == 2:
+                recon, latent = result
+            else:
+                recon, mu, var = result
 
             # Move to CPU for visualization
             inp_cpu = inp.squeeze(0).cpu()
@@ -140,9 +145,9 @@ def generate_and_visualize_samples(model, dataset, num_samples=10, save_dir="out
 if __name__ == "__main__":
     mp.set_start_method("spawn", force=True)
     seed_everything(42)
-    cfg_yaml_path = "logs/poc2mol/runs/2025-01-08_20-24-57/config.yaml"
+    cfg_yaml_path = "logs/vae_pretrain/runs/2025-01-28_14-37-24/.hydra/config.yaml"
     # Path to the pretrained structural autoencoder checkpoint
-    ckpt_path = "logs/poc2mol/runs/2025-01-08_20-24-57/checkpoints/epoch_020.ckpt"
+    ckpt_path = "logs/vae_pretrain/runs/2025-01-28_14-37-24/checkpoints/last.ckpt"
 
     # Path to a directory with PDB files
     pdb_dir = "/mnt/disk2/pinder/pinder/2024-02/pdbs"
@@ -164,18 +169,18 @@ if __name__ == "__main__":
         config=config,
         pdb_dir=pdb_dir,
         rotate=True,
-        max_samples=6000  # total
+        max_samples=21000  # total
     )
 
     # Split into train(5000), val(500), test(500)
-    lengths = [5000, 500, 500]
+    lengths = [20000, 500, 500]
     train_data, val_data, test_data = random_split(full_dataset, lengths)
 
     # --------------------------------------------------------------------------------
     # 1) Load the pretrained autoencoder
     # --------------------------------------------------------------------------------
     # Make sure to call load_from_checkpoint on the class directly, not on an instance
-    model_ae = StructuralAutoEncoder.load_from_checkpoint(
+    model_ae = StructuralVariationalAutoEncoder.load_from_checkpoint(
         checkpoint_path=ckpt_path,
         in_channels=8,      # These should match the AE's original hyperparams
         f_maps=64,
@@ -185,9 +190,13 @@ if __name__ == "__main__":
         num_groups=8,
         conv_padding=1,
         dropout_prob=0.1,
-        lr=1e-3,
-        weight_decay=1.0e-05,
+        lr=0.0003,
+        weight_decay=0.0001,
         loss=None,
+        half_decoder_layers=True,
+        half_decoder_channels=True,
+        beta=5.0e-05,
+        disable_vae=False
     )
     model_ae.eval()
 
@@ -196,7 +205,7 @@ if __name__ == "__main__":
     # --------------------------------------------------------------------------------
     # Just for visual: store 10 samples as images
     print("Generating a few decoded samples...")
-    # generate_and_visualize_samples(model_ae, full_dataset, num_samples=1, save_dir="outputs/visual_samples")
+    # generate_and_visualize_samples(model_ae, full_dataset, num_samples=10, save_dir="outputs/visual_samples_vae_2025-01-28")
 
     # --------------------------------------------------------------------------------
     # 3) Create feature dataset by encoding samples
@@ -214,7 +223,11 @@ if __name__ == "__main__":
             for i, batch in enumerate(loader):
                 print(f"Processing batch {i+1} of {len(loader)}")
                 inp = batch["input"].to(device)
-                z = model_ae.encode(inp)  # shape: [B, latent_dim, D/32, H/32, W/32] typically
+                res = model_ae.encode(inp)  # shape: [B, latent_dim, D/32, H/32, W/32] typically
+                if isinstance(res, tuple):
+                    z = res[0]
+                else:
+                    z = res
                 # Flatten
                 z = torch.mean(z, dim=(2, 3, 4))  # simple global pooling for demonstration
                 embeddings.append(z.cpu())

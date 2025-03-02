@@ -172,6 +172,7 @@ class StructuralPretrainDataset(Dataset):
         self.struct_paths = self.get_structure_paths()
         self.max_atom_dist = config.max_atom_dist
         self.use_ca = use_ca
+        self.coord_indices = config.coord_indices
         # Initialize UnifiedAtomView with specified channels
         self.unified_view = UnifiedAtomView(
             element_channels={
@@ -195,13 +196,19 @@ class StructuralPretrainDataset(Dataset):
 
     def get_structure_paths(self):
         """Get all PDB files in the directory."""
-        return glob.glob(f"{self.pdb_dir}/**/*.pdb", recursive=True)
+        pdb_files = glob.glob(f"{self.pdb_dir}/**/*.pdb", recursive=True)
+        # cif_files = glob.glob(f"{self.pdb_dir}/**/*.cif", recursive=True)
+        return pdb_files #+ cif_files
 
     def select_random_center(self, complex: MolecularComplex) -> torch.Tensor:
         """Select a random protein atom as the center."""
         protein_coords = complex.protein_data.coords
         num_atoms = protein_coords.shape[1]
-        random_idx = torch.randint(0, num_atoms, (1,))
+        if self.coord_indices is not None:
+            # select a random index from coord_indices
+            random_idx = np.random.choice(self.coord_indices)
+        else:
+            random_idx = torch.randint(0, num_atoms, (1,))
         return protein_coords[:, random_idx].squeeze()
     
     def select_random_ca(self, complex: MolecularComplex) -> tuple[torch.Tensor, str]:

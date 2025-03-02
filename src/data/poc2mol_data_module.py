@@ -16,6 +16,7 @@ class DataConfig:
             protein_channels: list[int] = [6, 7, 8, 9, 10, 11],
             fnames: Optional[list] = None,
             max_atom_dist: Optional[float] = 24.0,
+            coord_indices: Optional[list[int]] = None,
     ):
         self.vox_config = vox_config
         self.batch_size = batch_size
@@ -24,7 +25,7 @@ class DataConfig:
         self.ligand_channels = ligand_channels
         self.protein_channels = protein_channels
         self.max_atom_dist = max_atom_dist
-
+        self.coord_indices = coord_indices
 
 class ComplexDataModule(LightningDataModule):
     def __init__(self, config: DataConfig, pdb_dir: str, val_pdb_dir: str):
@@ -94,6 +95,7 @@ class StructuralPretrainDataModule(LightningDataModule):
         self.batch_size = config.batch_size
         self.num_workers = num_workers
         self.save_hyperparameters(ignore=['config'])
+    
     def setup(self, stage: Optional[str] = None):
         # Create training dataset with rotations
         self.train_dataset = StructuralPretrainDataset(

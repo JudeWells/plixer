@@ -137,9 +137,11 @@ class StructuralVariationalAutoEncoder(LightningModule):
         loss=None,
         half_decoder_layers: bool = False,
         half_decoder_channels: bool = False,
+        disable_vae: bool = False,
         beta: float = 1.0
     ):
         super().__init__()
+        self.disable_vae = disable_vae
         self.beta = beta
         self.save_hyperparameters(logger=False)
         
@@ -228,7 +230,10 @@ class StructuralVariationalAutoEncoder(LightningModule):
         # Reparameterize
         z = self.reparameterize(mu, logvar)
         # Decode
-        recon = self.decode(z)
+        if self.disable_vae:
+            recon = self.decode(mu)
+        else:
+            recon = self.decode(z)
         return recon, mu, logvar
 
     def training_step(self, batch, batch_idx):
@@ -244,7 +249,7 @@ class StructuralVariationalAutoEncoder(LightningModule):
         self.log("train/loss", loss, on_step=True, on_epoch=True, prog_bar=True)
         self.log("train/recon_loss", recon_loss, on_step=True, on_epoch=True, prog_bar=True)
         self.log("train/kl", kl, on_step=True, on_epoch=True, prog_bar=True)
-        self.log("train/logvar", logvar, on_step=True, on_epoch=True, prog_bar=True)
+        self.log("train/logvar", logvar.mean(), on_step=True, on_epoch=True, prog_bar=True)
         return loss
 
     def validation_step(self, batch, batch_idx):
@@ -260,7 +265,7 @@ class StructuralVariationalAutoEncoder(LightningModule):
         self.log("val/loss", loss, on_step=False, on_epoch=True, prog_bar=True)
         self.log("val/recon_loss", recon_loss, on_step=False, on_epoch=True, prog_bar=True)
         self.log("val/kl", kl, on_step=False, on_epoch=True, prog_bar=True)
-        self.log("val/logvar", logvar, on_step=True, on_epoch=True, prog_bar=True)
+        self.log("val/logvar", logvar.mean(), on_step=True, on_epoch=True, prog_bar=True)
         return loss
 
     def configure_optimizers(self):
