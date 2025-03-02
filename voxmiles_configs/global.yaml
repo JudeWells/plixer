@@ -1,0 +1,71 @@
+datamodule:
+  _target_: src.data.voxmiles_datamodule.VoxMilesDataModule
+  data_path: ${paths.data_dir}/partial_4327252_rdkit_folder/drugs
+  tokenizer:
+    _target_: transformers.AutoTokenizer.from_pretrained
+    pretrained_model_name_or_path: seyonec/ChemBERTa-zinc-base-v1
+  vox_size: 0.75
+  box_dims: [24.0, 24.0, 24.0]
+  max_smiles_len: 256
+  batch_size: 22
+  num_workers: 4
+  pin_memory: True
+  random_rotation: True
+  random_translation: 6.0
+
+model:
+  _target_: src.models.vit_gpt2_model.VitGPT2Model
+  vit_config:
+    _target_: transformers.ViTConfig
+    hidden_size: 768
+    num_hidden_layers: 6
+    num_attention_heads: 4
+    intermediate_size: 3072
+    hidden_act: gelu
+    hidden_dropout_prob: 0.0
+    attention_probs_dropout_prob: 0.0
+    initializer_range: 0.02
+    layer_norm_eps: 1e-12
+    image_size: ${datamodule.image_size}
+    patch_size: 4
+    num_channels: ${datamodule.num_channels}
+    qkv_bias: True
+    encoder_stride: 2
+  gpt2_config:
+    _target_: transformers.GPT2Config
+    bos_token_id: ${datamodule.tokenizer.cls_token_id}
+    eos_token_id: ${datamodule.tokenizer.sep_token_id}
+    vocab_size: ${eval:len(${datamodule.tokenizer})}
+    pad_token_id: ${datamodule.tokenizer.pad_token_id}
+
+trainer:
+  _target_: pytorch_lightning.Trainer
+  max_epochs: 3
+  accelerator: auto
+  devices: 1
+  log_every_n_steps: 10
+
+optimizer:
+  _target_: torch.optim.AdamW
+  lr: 1e-4
+
+scheduler:
+  _target_: torch.optim.lr_scheduler.StepLR
+  step_size: 10
+  gamma: 0.1
+
+paths:
+  data_dir: ../data
+  output_dir: ${paths.data_dir}/models/${now:%Y-%m-%d}/${now:%H-%M-%S}
+
+wandb:
+  _target_: src.utils.wandb_utils.init_wandb
+  project: voxelmiles
+  name: ${now:%Y-%m-%d}_${now:%H-%M-%S}
+  config:
+    vox_size: ${datamodule.vox_size}
+    box_dims: ${datamodule.box_dims}
+    num_channels: ${eval:len(src.data.voxel_views.DEFAULT_CHANNELS)}
+    max_smiles_len: ${datamodule.max_smiles_len}
+    batch_size: ${datamodule.batch_size}
+    image_size: ${datamodule.image_size}
