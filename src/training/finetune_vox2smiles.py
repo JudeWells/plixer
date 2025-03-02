@@ -1,11 +1,24 @@
 import os
+import sys
 import argparse
 import torch
+import multiprocessing
 from lightning import Trainer
 from lightning.pytorch.callbacks import ModelCheckpoint, LearningRateMonitor
 from lightning.pytorch.loggers import WandbLogger
+import hydra
+from omegaconf import OmegaConf
 
-from src.models.poc2mol import Poc2Mol
+# Set multiprocessing start method to 'spawn' to avoid CUDA issues
+# This must be done at the beginning of the program
+if __name__ == "__main__":
+    multiprocessing.set_start_method('spawn', force=True)
+
+# Add the project root to the Python path
+project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), "../.."))
+sys.path.insert(0, project_root)
+
+from src.models.poc2mol import Poc2Mol, ResUnetConfig
 from src.models.vox2smiles import VoxToSmilesModel
 from src.data.poc2mol.data_module import ComplexDataModule
 from src.data.vox2smiles.data_module import VoxMilesDataModule
@@ -43,13 +56,44 @@ def main():
     # Create output directory
     os.makedirs(args.output_dir, exist_ok=True)
     
-    # Load Poc2Mol model
-    poc2mol_model = Poc2Mol.load_from_checkpoint(args.poc2mol_checkpoint)
+    # Load Poc2Mol model with proper configuration
+    # First, load the default configuration from the config file
+    config_path = os.path.join(project_root, "configs/model/poc2mol.yaml")
+    poc2mol_config = OmegaConf.load(config_path)
+    
+    # Load the model with the configuration
+    poc2mol_model = Poc2Mol.load_from_checkpoint(
+        args.poc2mol_checkpoint,
+        config=ResUnetConfig(
+            in_channels=poc2mol_config.config.in_channels,
+            out_channels=poc2mol_config.config.out_channels,
+            final_sigmoid=poc2mol_config.config.final_sigmoid,
+            f_maps=poc2mol_config.config.f_maps,
+            layer_order=poc2mol_config.config.layer_order,
+            num_groups=poc2mol_config.config.num_groups,
+            num_levels=poc2mol_config.config.num_levels,
+            is_segmentation=poc2mol_config.config.is_segmentation,
+            conv_padding=poc2mol_config.config.conv_padding,
+            conv_upscale=poc2mol_config.config.conv_upscale,
+            upsample=poc2mol_config.config.upsample,
+            dropout_prob=poc2mol_config.config.dropout_prob,
+            basic_module=hydra.utils.get_class(poc2mol_config.config.basic_module),
+            loss=poc2mol_config.config.loss
+        )
+    )
     poc2mol_model.eval()
     poc2mol_model.freeze()
     
-    # Load Vox2Smiles model
-    vox2smiles_model = VoxToSmilesModel.load_from_checkpoint(args.vox2smiles_checkpoint)
+    # Load Vox2Smiles model with its saved configuration
+    # This will use the configuration stored in the checkpoint
+    vox2smiles_model = VoxToSmilesModel.load_from_checkpoint(
+        args.vox2smiles_checkpoint,
+        # strict=True
+    )
+    
+    # Load the vox2smiles configuration from the config file for data module setup
+    vox2smiles_config_path = os.path.join(project_root, "configs/model/poc2smiles.yaml")
+    vox2smiles_full_config = OmegaConf.load(vox2smiles_config_path)
     
     # Create data modules
     poc2mol_config = Poc2MolDataConfig(
@@ -106,8 +150,10 @@ def main():
         combined_dataset,
         batch_size=args.batch_size,
         shuffle=True,
-        num_workers=4,
+        num_workers=0,
         collate_fn=vox2smiles_data_module.collate_fn,
+        pin_memory=False,
+        persistent_workers=False
     )
     
     val_loader = vox2smiles_data_module.val_dataloader()

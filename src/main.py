@@ -137,7 +137,7 @@ def finetune_vox2smiles(cfg: DictConfig):
         combined_dataset,
         batch_size=cfg.training.batch_size,
         shuffle=True,
-        num_workers=4,
+        num_workers=0,
         collate_fn=vox2smiles_data_module.collate_fn,
     )
     

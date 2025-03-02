@@ -163,6 +163,8 @@ class Poc2MolOutputDataset(Dataset):
         with torch.no_grad():
             predicted_ligand_voxel, _ = self.poc2mol_model(protein_voxel.unsqueeze(0))
             predicted_ligand_voxel = predicted_ligand_voxel.squeeze(0)
+            # Move the tensor to CPU to avoid pin_memory issues
+            predicted_ligand_voxel = predicted_ligand_voxel.cpu()
         
         # Get the SMILES string for the ground truth ligand
         # This would require additional processing to convert the voxel to a SMILES string

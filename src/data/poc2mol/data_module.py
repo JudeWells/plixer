@@ -16,13 +16,15 @@ class ComplexDataModule(LightningDataModule):
         config: Poc2MolDataConfig,
         pdb_dir: str,
         val_pdb_dir: str,
-        test_pdb_dir: Optional[str] = None
+        test_pdb_dir: Optional[str] = None,
+        num_workers: int = 0
     ):
         super().__init__()
         self.config = config
         self.pdb_dir = pdb_dir
         self.val_pdb_dir = val_pdb_dir
         self.test_pdb_dir = test_pdb_dir or val_pdb_dir  # Use val_pdb_dir as default for test
+        self.num_workers = num_workers
 
     def setup(self, stage: Optional[str] = None):
         """Set up the datasets for each stage."""
@@ -55,8 +57,9 @@ class ComplexDataModule(LightningDataModule):
             self.train_dataset,
             batch_size=self.config.batch_size,
             shuffle=True,
-            num_workers=4,
-            pin_memory=True,
+            num_workers=0,
+            pin_memory=False,
+            persistent_workers=True if self.num_workers > 0 else False,
         )
 
     def val_dataloader(self):
@@ -65,8 +68,9 @@ class ComplexDataModule(LightningDataModule):
             self.val_dataset,
             batch_size=min(4, self.config.batch_size),  # Smaller batch size for validation
             shuffle=False,
-            num_workers=4,
-            pin_memory=True,
+            num_workers=0,
+            pin_memory=False,
+            persistent_workers=True if self.num_workers > 0 else False,
         )
 
     def test_dataloader(self):
@@ -75,6 +79,7 @@ class ComplexDataModule(LightningDataModule):
             self.test_dataset,
             batch_size=min(4, self.config.batch_size),  # Smaller batch size for testing
             shuffle=False,
-            num_workers=4,
-            pin_memory=True,
+            num_workers=0,
+            pin_memory=False,
+            persistent_workers=True if self.num_workers > 0 else False,
         ) 

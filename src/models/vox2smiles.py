@@ -12,7 +12,7 @@ from rdkit.Chem import Draw
 import io
 from PIL import Image, ImageDraw, ImageFont
 from src.models.modeling_vit_3d import ViTModel3D
-from src.data.tokenizers.smiles_tokenizer import build_smiles_tokenizer
+from src.data.common.tokenizers.smiles_tokenizer import build_smiles_tokenizer
 from src.utils.metrics import accuracy_from_outputs
 
 

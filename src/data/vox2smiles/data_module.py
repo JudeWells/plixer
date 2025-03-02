@@ -67,7 +67,8 @@ class VoxMilesDataModule(LightningDataModule):
             shuffle=True,
             num_workers=self.config.num_workers,
             collate_fn=self.collate_fn,
-            pin_memory=True,
+            pin_memory=False,
+            persistent_workers=True if self.config.num_workers > 0 else False,
         )
 
     def val_dataloader(self):
@@ -78,7 +79,8 @@ class VoxMilesDataModule(LightningDataModule):
             shuffle=False,
             num_workers=self.config.num_workers,
             collate_fn=self.collate_fn,
-            pin_memory=True,
+            pin_memory=False,
+            persistent_workers=True if self.config.num_workers > 0 else False,
         )
 
     def test_dataloader(self):
@@ -89,5 +91,6 @@ class VoxMilesDataModule(LightningDataModule):
             shuffle=False,
             num_workers=self.config.num_workers,
             collate_fn=self.collate_fn,
-            pin_memory=True,
+            pin_memory=False,
+            persistent_workers=True if self.config.num_workers > 0 else False,
         ) 

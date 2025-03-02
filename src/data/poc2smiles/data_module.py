@@ -105,7 +105,8 @@ class ProteinLigandSmilesDataModule(LightningDataModule):
         vox2smiles_config: Vox2SmilesDataConfig,
         pdb_dir: str,
         val_pdb_dir: str,
-        test_pdb_dir: Optional[str] = None
+        test_pdb_dir: Optional[str] = None,
+        num_workers: int = 4
     ):
         super().__init__()
         self.poc2mol_config = poc2mol_config
@@ -113,7 +114,7 @@ class ProteinLigandSmilesDataModule(LightningDataModule):
         self.pdb_dir = pdb_dir
         self.val_pdb_dir = val_pdb_dir
         self.test_pdb_dir = test_pdb_dir or val_pdb_dir  # Use val_pdb_dir as default for test
-        
+        self.num_workers = num_workers
         # Build the tokenizer
         self.tokenizer = build_smiles_tokenizer()
         
@@ -182,9 +183,10 @@ class ProteinLigandSmilesDataModule(LightningDataModule):
             self.train_dataset,
             batch_size=self.poc2mol_config.batch_size,
             shuffle=True,
-            num_workers=4,
+            num_workers=self.num_workers,
             collate_fn=self.collate_fn,
-            pin_memory=True,
+            pin_memory=False,
+            persistent_workers=True if self.num_workers > 0 else False,
         )
 
     def val_dataloader(self):
@@ -193,9 +195,10 @@ class ProteinLigandSmilesDataModule(LightningDataModule):
             self.val_dataset,
             batch_size=min(4, self.poc2mol_config.batch_size),  # Smaller batch size for validation
             shuffle=False,
-            num_workers=4,
+            num_workers=self.num_workers,
             collate_fn=self.collate_fn,
-            pin_memory=True,
+            pin_memory=False,
+            persistent_workers=True if self.num_workers > 0 else False,
         )
 
     def test_dataloader(self):
@@ -204,7 +207,8 @@ class ProteinLigandSmilesDataModule(LightningDataModule):
             self.test_dataset,
             batch_size=min(4, self.poc2mol_config.batch_size),  # Smaller batch size for testing
             shuffle=False,
-            num_workers=4,
+            num_workers=self.num_workers,
             collate_fn=self.collate_fn,
-            pin_memory=True,
+            pin_memory=False,
+            persistent_workers=True if self.num_workers > 0 else False,
         )

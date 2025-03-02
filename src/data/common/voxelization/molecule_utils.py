@@ -2,6 +2,7 @@ import os
 import pickle
 import numpy as np
 import torch
+import pandas as pd
 from rdkit import Chem
 from docktgrid.transforms import RandomRotation
 from docktgrid.molecule import MolecularComplex
@@ -80,7 +81,7 @@ def prune_distant_atoms(complex_obj, max_atom_dist):
     complex_obj.ligand_data.coords = complex_obj.ligand_data.coords[:, lig_mask]
     
     # Handle element symbols differently based on type
-    if isinstance(complex_obj.ligand_data.element_symbols, np.ndarray):
+    if isinstance(complex_obj.ligand_data.element_symbols, (np.ndarray, pd.Series)):
         complex_obj.ligand_data.element_symbols = complex_obj.ligand_data.element_symbols[lig_mask.numpy()]
     else:
         complex_obj.ligand_data.element_symbols = complex_obj.ligand_data.element_symbols[lig_mask]

@@ -1,9 +1,15 @@
 import os
 import argparse
 import torch
+import multiprocessing
 from lightning import Trainer
 from lightning.pytorch.callbacks import ModelCheckpoint, LearningRateMonitor
 from lightning.pytorch.loggers import WandbLogger
+
+# Set multiprocessing start method to 'spawn' to avoid CUDA issues
+# This must be done at the beginning of the program
+if __name__ == "__main__":
+    multiprocessing.set_start_method('spawn', force=True)
 
 from src.models.poc2mol import Poc2Mol
 from src.models.vox2smiles import VoxToSmilesModel

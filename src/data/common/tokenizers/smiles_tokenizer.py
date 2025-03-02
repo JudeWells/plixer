@@ -9,6 +9,12 @@ def build_smiles_tokenizer():
     # Get the path to the tokenizer file
     current_dir = os.path.dirname(os.path.abspath(__file__))
     tokenizer_path = os.path.join(current_dir, "SMILES_PreTrainedTokenizerFast.json")
+    multichar_tokens = [
+        "Cl", "Br", "At", "Si", "Se", "Te", "As", "Mg", "Br", "MgZn", 
+        "Mg", "Zn", "Na", "Ca", "Al", "%10", "%11", "%12", "%13", "%14",
+        "%15", "%16", "%17", "%18", "%19", "%20", "%21", "@@",
+        "%22", "%23", "%24", r"\\", "\\"
+    ]
     
     # Load the tokenizer
     tokenizer = PreTrainedTokenizerFast(
@@ -20,6 +26,7 @@ def build_smiles_tokenizer():
         cls_token="[CLS]",
         sep_token="[SEP]",
         mask_token="[MASK]",
+        max_len=512,
     )
-    
+    tokenizer.add_tokens(multichar_tokens)
     return tokenizer
