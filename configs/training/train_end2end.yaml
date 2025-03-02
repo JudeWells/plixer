@@ -1,0 +1,54 @@
+# Configuration for end-to-end training of Poc2Smiles model
+
+# Paths
+poc2mol_checkpoint: ${paths.checkpoints_dir}/poc2mol/best.ckpt
+vox2smiles_checkpoint: ${paths.checkpoints_dir}/vox2smiles/best.ckpt
+pdb_dir: ${paths.pdb_dir}
+val_pdb_dir: ${paths.val_pdb_dir}
+output_dir: ${paths.output_dir}/poc2smiles_end2end
+
+# Training parameters
+batch_size: 16
+lr: 1e-5
+max_epochs: 10
+freeze_poc2mol: false
+freeze_vox2smiles: false
+seed: 42
+
+# Trainer configuration
+trainer:
+  accelerator: auto
+  devices: 1
+  max_epochs: ${training.max_epochs}
+  precision: 16
+  gradient_clip_val: 1.0
+  log_every_n_steps: 50
+  val_check_interval: 0.25
+  
+# Logger configuration
+logger:
+  _target_: lightning.pytorch.loggers.WandbLogger
+  project: poc2smiles-end2end
+  name: end2end-lr-${training.lr}-freeze_poc2mol-${training.freeze_poc2mol}-freeze_vox2smiles-${training.freeze_vox2smiles}
+  save_dir: ${training.output_dir}
+  
+# Callbacks
+callbacks:
+  model_checkpoint:
+    _target_: lightning.pytorch.callbacks.ModelCheckpoint
+    dirpath: ${training.output_dir}/checkpoints
+    filename: poc2smiles-end2end-{epoch:02d}-{val_loss:.4f}
+    monitor: val/loss
+    mode: min
+    save_top_k: 3
+    save_last: true
+    
+  lr_monitor:
+    _target_: lightning.pytorch.callbacks.LearningRateMonitor
+    logging_interval: step
+    
+  early_stopping:
+    _target_: lightning.pytorch.callbacks.EarlyStopping
+    monitor: val/loss
+    patience: 5
+    mode: min 

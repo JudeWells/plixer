@@ -1,0 +1,41 @@
+# Configuration for generating SMILES strings from protein voxels
+
+# Set the mode to generate
+mode: generate
+
+# Generation parameters
+generate:
+  checkpoint_path: ${paths.checkpoints_dir}/poc2smiles_end2end/poc2smiles-end2end-final.ckpt
+  output_dir: ${paths.output_dir}/generated_smiles
+  batch_size: 8
+  num_samples: 100  # Number of samples to generate per protein
+  temperature: 1.0  # Temperature for sampling
+  seed: 42
+
+# Data configuration
+data:
+  poc2smiles_data:
+    _target_: src.data.poc2smiles.data_module.ProteinLigandSmilesDataModule
+    pdb_dir: ${paths.pdb_dir}
+    val_pdb_dir: ${paths.val_pdb_dir}
+    poc2mol_config:
+      _target_: src.data.common.voxelization.config.Poc2MolDataConfig
+      vox_size: 0.75
+      box_dims: [24.0, 24.0, 24.0]
+      random_rotation: false  # No rotation for generation
+      random_translation: 0.0  # No translation for generation
+      max_atom_dist: 32.0
+      dtype: ${oc.select:torch.float16,torch.float16}
+      batch_size: ${generate.batch_size}
+      has_protein: true
+    vox2smiles_config:
+      _target_: src.data.common.voxelization.config.Vox2SmilesDataConfig
+      vox_size: 0.75
+      box_dims: [24.0, 24.0, 24.0]
+      random_rotation: false  # No rotation for generation
+      random_translation: 0.0  # No translation for generation
+      max_atom_dist: 32.0
+      dtype: ${oc.select:torch.float16,torch.float16}
+      batch_size: ${generate.batch_size}
+      max_smiles_len: 200
+      has_protein: false 

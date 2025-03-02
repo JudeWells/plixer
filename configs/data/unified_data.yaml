@@ -1,0 +1,115 @@
+# Common voxelization parameters
+voxelization:
+  vox_size: 0.75
+  box_dims: [24.0, 24.0, 24.0]
+  random_rotation: true
+  random_translation: 6.0
+  max_atom_dist: 32.0
+  dtype: ${oc.select:torch.float16,torch.float16}
+
+# Poc2Mol data module configuration
+poc2mol_data:
+  _target_: src.data.poc2mol.data_module.ComplexDataModule
+  pdb_dir: ../PDBbind_v2020_refined-set
+  val_pdb_dir: ../validation_PDBbind
+  config:
+    _target_: src.data.common.voxelization.config.Poc2MolDataConfig
+    vox_size: ${data.voxelization.vox_size}
+    box_dims: ${data.voxelization.box_dims}
+    random_rotation: ${data.voxelization.random_rotation}
+    random_translation: ${data.voxelization.random_translation}
+    max_atom_dist: ${data.voxelization.max_atom_dist}
+    dtype: ${data.voxelization.dtype}
+    batch_size: 80
+    ligand_channel_indices: [5, 6, 7, 8, 9, 10, 11, 12, 13, 14]
+    protein_channel_indices: [0, 1, 2, 3, 4, 5]
+    has_protein: true
+    ligand_channel_names:
+      - carbon
+      - hydrogen
+      - oxygen
+      - nitrogen
+      - sulfur
+      - chlorine
+      - fluorine
+      - iodine
+      - bromine
+      - all
+    protein_channel_names:
+      - carbon
+      - hydrogen
+      - oxygen
+      - nitrogen
+      - sulfur
+      - all
+    protein_channels:
+      0: [ "C" ]
+      1: [ "H" ]
+      2: [ "O" ]
+      3: [ "N" ]
+      4: [ "S" ]
+      5: [ "C", "H", "O", "N", "S"]
+    ligand_channels:
+      0: [ "C" ]
+      1: [ "H" ]
+      2: [ "O" ]
+      3: [ "N" ]
+      4: [ "S" ]
+      5: [ "Cl" ]
+      6: [ "F" ]
+      7: [ "I" ]
+      8: [ "Br" ]
+      9: [ "C", "H", "O", "N", "S", "Cl", "F", "I", "Br" ]
+
+# Vox2Smiles data module configuration
+vox2smiles_data:
+  _target_: src.data.vox2smiles.data_module.VoxMilesDataModule
+  data_path: "../geom/rdkit_folder/drugs"
+  config:
+    _target_: src.data.common.voxelization.config.Vox2SmilesDataConfig
+    vox_size: ${data.voxelization.vox_size}
+    box_dims: ${data.voxelization.box_dims}
+    random_rotation: ${data.voxelization.random_rotation}
+    random_translation: ${data.voxelization.random_translation}
+    max_atom_dist: ${data.voxelization.max_atom_dist}
+    dtype: ${data.voxelization.dtype}
+    batch_size: 24
+    num_workers: 0
+    max_smiles_len: 200
+    has_protein: false
+    ligand_channel_names:
+      - carbon
+      - hydrogen
+      - oxygen
+      - nitrogen
+      - sulfur
+      - chlorine
+      - fluorine
+      - iodine
+      - bromine
+      - all
+    protein_channel_names:
+      - carbon
+      - hydrogen
+      - oxygen
+      - nitrogen
+      - sulfur
+      - all
+    protein_channels:
+      0: [ "C" ]
+      1: [ "H" ]
+      2: [ "O" ]
+      3: [ "N" ]
+      4: [ "S" ]
+      5: [ "C", "H", "O", "N", "S"]
+    ligand_channels:
+      0: [ "C" ]
+      1: [ "H" ]
+      2: [ "O" ]
+      3: [ "N" ]
+      4: [ "S" ]
+      5: [ "Cl" ]
+      6: [ "F" ]
+      7: [ "I" ]
+      8: [ "Br" ]
+      9: [ "C", "H", "O", "N", "S", "Cl", "F", "I", "Br" ] 
