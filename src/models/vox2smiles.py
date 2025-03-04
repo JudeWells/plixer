@@ -5,7 +5,9 @@ from torchmetrics import MeanMetric
 from transformers import (VisionEncoderDecoderModel,
                           VisionEncoderDecoderConfig,
                           ViTConfig,
-                          GPT2Config)
+                          GPT2Config,
+                          get_scheduler,
+                          SchedulerType)
 import wandb
 from rdkit import Chem
 from rdkit.Chem import Draw
@@ -20,6 +22,7 @@ class VoxToSmilesModel(LightningModule):
     def __init__(
         self,
         config,
+        override_optimizer_on_load: bool = False,
         compile: bool = False,
     ) -> None:
         super().__init__()
@@ -69,6 +72,8 @@ class VoxToSmilesModel(LightningModule):
         self.test_loss = MeanMetric()
         self.test_acc = MeanMetric()
 
+        self.override_optimizer_on_load = override_optimizer_on_load
+
     def forward(self, pixel_values, labels=None):
         return self.model(pixel_values=pixel_values, labels=labels)
 
@@ -110,14 +115,82 @@ class VoxToSmilesModel(LightningModule):
 
     def configure_optimizers(self):
         optimizer = torch.optim.AdamW(self.parameters(), lr=self.hparams.config.lr)
-        scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=100, gamma=0.99)
-        return {
-            "optimizer": optimizer,
-            "lr_scheduler": {
-                "scheduler": scheduler,
-                "interval": "step",
-            },
-        }
+        
+        # Get scheduler configuration from config
+        scheduler_config = getattr(self.hparams.config, "scheduler", {})
+        scheduler_type = scheduler_config.get("type", "step")
+        
+        if scheduler_type == "step":
+            # Default StepLR scheduler
+            step_size = scheduler_config.get("step_size", 100)
+            gamma = scheduler_config.get("gamma", 0.997)
+            scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=step_size, gamma=gamma)
+            return {
+                "optimizer": optimizer,
+                "lr_scheduler": {
+                    "scheduler": scheduler,
+                    "interval": "step",
+                },
+            }
+        else:
+            # Use transformers' get_scheduler for other scheduler types
+            num_training_steps = self.trainer.estimated_stepping_batches
+            num_warmup_steps = scheduler_config.get("num_warmup_steps", 0)
+            
+            if isinstance(num_warmup_steps, float) and 0 <= num_warmup_steps < 1:
+                # If warmup_steps is a fraction, calculate the absolute number
+                num_warmup_steps = int(num_training_steps * num_warmup_steps)
+            
+            scheduler_specific_kwargs = {}
+            
+            # Handle specific scheduler parameters
+            if scheduler_type == "cosine_with_restarts":
+                scheduler_specific_kwargs["num_cycles"] = scheduler_config.get("num_cycles", 1)
+            elif scheduler_type == "cosine_with_min_lr":
+                scheduler_specific_kwargs["min_lr_rate"] = scheduler_config.get("min_lr_rate", 0.1)
+            
+            scheduler = get_scheduler(
+                name=scheduler_type,
+                optimizer=optimizer,
+                num_warmup_steps=num_warmup_steps,
+                num_training_steps=num_training_steps,
+                scheduler_specific_kwargs=scheduler_specific_kwargs
+            )
+            
+            return {
+                "optimizer": optimizer,
+                "lr_scheduler": {
+                    "scheduler": scheduler,
+                    "interval": scheduler_config.get("interval", "step"),
+                    "frequency": scheduler_config.get("frequency", 1),
+                },
+            }
+    
+    
+    def on_load_checkpoint(self, checkpoint):
+        """Handle checkpoint loading, optionally overriding optimizer and scheduler states.
+
+        If override_optimizer_on_load is True, we'll remove the optimizer and
+        lr_scheduler states from the checkpoint, forcing Lightning to create new ones
+        based on the current config hyperparameters.
+        """
+        if self.override_optimizer_on_load:
+            if "optimizer_states" in checkpoint:
+                print(
+                    "Overriding optimizer state from checkpoint with current config values"
+                )
+                del checkpoint["optimizer_states"]
+
+            if "lr_schedulers" in checkpoint:
+                print(
+                    "Overriding lr scheduler state from checkpoint with current config values"
+                )
+                del checkpoint["lr_schedulers"]
+
+            # Set a flag to tell Lightning not to expect optimizer states
+            checkpoint["optimizer_states"] = []
+            checkpoint["lr_schedulers"] = []
+
 
     def visualize_smiles(self, batch, outputs):
         actual_smiles = batch["smiles_str"]

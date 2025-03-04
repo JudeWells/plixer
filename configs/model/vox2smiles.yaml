@@ -15,3 +15,10 @@ config:
   qkv_bias: True
   encoder_stride: 2
   lr: 5e-5 
+  scheduler:
+    type: "cosine_with_min_lr"  # Options: step, linear, cosine, cosine_with_restarts, etc.
+    num_warmup_steps: 100
+    min_lr_rate: 0.1
+    num_training_steps: 20_000
+    interval: "step"  # or "epoch"
+    frequency: 1

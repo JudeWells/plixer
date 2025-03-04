@@ -1,0 +1,7 @@
+_target_: src.data.vox2smiles.data_module.VoxMilesDataModule
+data_path: "../geom/rdkit_folder/drugs"
+config:
+  _target_: src.data.common.voxelization.config.Vox2SmilesDataConfig
+  batch_size: 32
+  max_smiles_len: 200
+  has_protein: false

@@ -21,7 +21,7 @@ class CombinedProteinToSmilesModel(L.LightningModule):
     Vox2Smiles to generate SMILES strings from ligand voxels.
     """
     
-    def __init__(self, poc2mol_model, vox2smiles_model, config):
+    def __init__(self, poc2mol_model, vox2smiles_model, config, override_optimizer_on_load: bool = False):
         """
         Initialize the combined model.
         
@@ -42,6 +42,8 @@ class CombinedProteinToSmilesModel(L.LightningModule):
         # Create directory for saving images
         if self.config.get("img_save_dir"):
             os.makedirs(self.config["img_save_dir"], exist_ok=True)
+        
+        self.override_optimizer_on_load = override_optimizer_on_load
     
     def forward(self, protein_voxels):
         """
@@ -182,6 +184,33 @@ class CombinedProteinToSmilesModel(L.LightningModule):
             "lr_scheduler": scheduler,
         }
     
+
+    def on_load_checkpoint(self, checkpoint):
+        """Handle checkpoint loading, optionally overriding optimizer and scheduler states.
+
+        If override_optimizer_on_load is True, we'll remove the optimizer and
+        lr_scheduler states from the checkpoint, forcing Lightning to create new ones
+        based on the current config hyperparameters.
+        """
+        if self.override_optimizer_on_load:
+            if "optimizer_states" in checkpoint:
+                print(
+                    "Overriding optimizer state from checkpoint with current config values"
+                )
+                del checkpoint["optimizer_states"]
+
+            if "lr_schedulers" in checkpoint:
+                print(
+                    "Overriding lr scheduler state from checkpoint with current config values"
+                )
+                del checkpoint["lr_schedulers"]
+
+            # Set a flag to tell Lightning not to expect optimizer states
+            checkpoint["optimizer_states"] = []
+            checkpoint["lr_schedulers"] = []
+
+
+
     def _save_examples(self, protein_voxels, ligand_voxels, true_smiles, generated_smiles, num_examples=4):
         """
         Save examples of generated molecules.

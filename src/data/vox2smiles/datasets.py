@@ -66,6 +66,20 @@ class VoxMilesDataset(Dataset):
         
         # Store the config
         self.config = config
+        
+        self.voxel_config = Vox2SmilesDataConfig(
+            vox_size=self.config.vox_size,
+            box_dims=self.config.box_dims,
+            random_rotation=self.random_rotation,
+            random_translation=self.random_translation,
+            has_protein=False,  # Vox2Smiles doesn't use protein channels
+            ligand_channel_names=self.config.ligand_channel_names,
+            protein_channel_names=self.config.protein_channel_names,
+            protein_channels=self.config.protein_channels,
+            ligand_channels=self.config.ligand_channels,
+            max_atom_dist=self.config.max_atom_dist,
+            dtype=self.config.dtype
+        )
 
     def __len__(self):
         return len(self.data)
@@ -85,24 +99,11 @@ class VoxMilesDataset(Dataset):
             mol = mol_data["conformers"][conformer_idx]["rd_mol"]
         else:
             mol = mol_data["rd_mol"]
-        
-        # Create a temporary config with the current instance's settings
-        temp_config = Vox2SmilesDataConfig(
-            vox_size=self.config.vox_size,
-            box_dims=self.config.box_dims,
-            random_rotation=self.random_rotation,
-            random_translation=self.random_translation,
-            has_protein=False,  # Vox2Smiles doesn't use protein channels
-            ligand_channel_names=self.config.ligand_channel_names,
-            protein_channel_names=self.config.protein_channel_names,
-            protein_channels=self.config.protein_channels,
-            ligand_channels=self.config.ligand_channels,
-            max_atom_dist=self.config.max_atom_dist,
-            dtype=self.config.dtype
-        )
+        if not self.config.include_hydrogens:
+            mol = Chem.RemoveHs(mol)
         
         # Voxelize the molecule
-        voxel = voxelize_molecule(mol, temp_config)
+        voxel = voxelize_molecule(mol, self.voxel_config)
         
         # Get the SMILES string
         smiles_str = self.tokenizer.bos_token + Chem.MolToSmiles(mol) + self.tokenizer.eos_token
@@ -168,7 +169,7 @@ class ParquetVoxMilesDataset(Dataset):
         if os.path.exists(index_path):
             self.file_list = pd.read_csv(index_path)['parquet_file'].tolist()
         else:
-            # If no index file, find all parquet files in the directory
+            print("Indexing molecule files")
             self.file_list = glob.glob(os.path.join(data_path, "*.parquet"))
         
         # Get the number of molecules in each file
@@ -187,10 +188,24 @@ class ParquetVoxMilesDataset(Dataset):
         for file_idx, size in enumerate(self.file_sizes):
             for row_idx in range(size):
                 self.molecule_map.append((file_idx, row_idx))
-        
+        print("Molecule file index created")
         # Set up a simple cache to avoid reloading the same file multiple times
         self.cache = {}
         self.cache_size = cache_size
+
+        self.voxel_config =Vox2SmilesDataConfig(
+            vox_size=self.config.vox_size,
+            box_dims=self.config.box_dims,
+            random_rotation=self.random_rotation,
+            random_translation=self.random_translation,
+            has_protein=False,  # Vox2Smiles doesn't use protein channels
+            ligand_channel_names=self.config.ligand_channel_names,
+            protein_channel_names=self.config.protein_channel_names,
+            protein_channels=self.config.protein_channels,
+            ligand_channels=self.config.ligand_channels,
+            max_atom_dist=self.config.max_atom_dist,
+            dtype=self.config.dtype
+        )
 
     def __len__(self):
         return self.total_molecules
@@ -215,11 +230,11 @@ class ParquetVoxMilesDataset(Dataset):
         
         # Get the molecule data
         mol_data = self.cache[file_path].iloc[row_idx]
-        
         # Reconstruct the RDKit molecule from the mol block
         mol_block = mol_data['mol_block']
         mol = Chem.MolFromMolBlock(mol_block.decode() if isinstance(mol_block, bytes) else mol_block)
-        
+        if not self.config.include_hydrogens:
+            mol = Chem.RemoveHs(mol)
         if mol is None:
             # If we can't parse the mol block, try to create from SMILES
             smiles = mol_data['smiles']
@@ -228,25 +243,12 @@ class ParquetVoxMilesDataset(Dataset):
             # If we still can't create a molecule, use a fallback (benzene)
             if mol is None:
                 mol = Chem.MolFromSmiles("c1ccccc1")
-        
-        # Create a temporary config with the current instance's settings
-        temp_config = Vox2SmilesDataConfig(
-            vox_size=self.config.vox_size,
-            box_dims=self.config.box_dims,
-            random_rotation=self.random_rotation,
-            random_translation=self.random_translation,
-            has_protein=False,  # Vox2Smiles doesn't use protein channels
-            ligand_channel_names=self.config.ligand_channel_names,
-            protein_channel_names=self.config.protein_channel_names,
-            protein_channels=self.config.protein_channels,
-            ligand_channels=self.config.ligand_channels,
-            max_atom_dist=self.config.max_atom_dist,
-            dtype=self.config.dtype
-        )
+
         
         # Add hydrogens and generate 3D coordinates if needed
         if mol.GetNumConformers() == 0:
-            mol = Chem.AddHs(mol)
+            if self.config.include_hydrogens:
+                mol = Chem.AddHs(mol)
             # Use a standard RDKit conformer generation
             try:
                 from rdkit.Chem import AllChem
@@ -255,11 +257,12 @@ class ParquetVoxMilesDataset(Dataset):
                 # If conformer generation fails, we'll skip this molecule
                 # and provide a fallback
                 mol = Chem.MolFromSmiles("c1ccccc1")
-                mol = Chem.AddHs(mol)
+                if self.config.include_hydrogens:
+                    mol = Chem.AddHs(mol)
                 AllChem.EmbedMolecule(mol, AllChem.ETKDG())
         
         # Voxelize the molecule
-        voxel = voxelize_molecule(mol, temp_config)
+        voxel = voxelize_molecule(mol, self.voxel_config)
         
         # Get the SMILES string
         smiles_str = self.tokenizer.bos_token + Chem.MolToSmiles(mol) + self.tokenizer.eos_token
@@ -272,7 +275,8 @@ class ParquetVoxMilesDataset(Dataset):
             truncation=True,
             return_tensors="pt"
         )
-        
+        if self.tokenizer.unk_token_id in smiles.input_ids:
+            print(f"UNK token in SMILES string: {smiles_str}")
         # Return the voxelized molecule and tokenized SMILES string
         return {
             "pixel_values": voxel,

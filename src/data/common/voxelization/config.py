@@ -89,3 +89,4 @@ class Vox2SmilesDataConfig(VoxelizationConfig):
     
     # For Vox2Smiles, we typically don't need protein channels
     has_protein: bool = False 
+    include_hydrogens: bool = True
