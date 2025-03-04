@@ -6,7 +6,6 @@ defaults:
   - logger: wandb.yaml
   - trainer: default.yaml
   - paths: default.yaml
-  - extras: default.yaml
   - hydra: default.yaml
 
 task_name: "poc2mol"

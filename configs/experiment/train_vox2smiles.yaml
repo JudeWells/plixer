@@ -1,0 +1,14 @@
+# @package _global_
+defaults:
+  - _self_
+  - override /data: vox2smiles_zinc_data
+  - override /model: vox2smiles
+  - override /logger: wandb.yaml
+
+task_name: "vox2smilesZinc"
+tags: ["dev", "resume_from_ckpt"]
+train: True
+test: True
+optimized_metric: "val/loss"
+ckpt_path: "/mnt/disk2/VoxelDiffOuter/voxmiles/logs/vox_to_smiles/runs/2025-03-02_23-37-11/checkpoints/last.ckpt"
+seed: 42

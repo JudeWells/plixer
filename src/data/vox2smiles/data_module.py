@@ -17,13 +17,21 @@ class VoxMilesDataModule(LightningDataModule):
         config: Vox2SmilesDataConfig,
         data_path: str,
         val_split: float = 0.1,
-        test_split: float = 0.1
+        test_split: float = 0.1,
+        train_dataset = None,
+        val_dataset = None,
+        test_dataset = None
     ):
         super().__init__()
         self.config = config
         self.data_path = data_path
         self.val_split = val_split
         self.test_split = test_split
+        
+        # Store provided datasets
+        self.train_dataset_provided = train_dataset
+        self.val_dataset_provided = val_dataset
+        self.test_dataset_provided = test_dataset
         
         # Build the tokenizer
         self.tokenizer = build_smiles_tokenizer()
@@ -34,30 +42,38 @@ class VoxMilesDataModule(LightningDataModule):
     def setup(self, stage: Optional[str] = None):
         """Set up the datasets for each stage."""
         if stage == 'fit' or stage is None:
-            self.train_dataset = VoxMilesDataset(
-                data_path=f"{self.data_path}/train",
-                tokenizer=self.tokenizer,
-                config=self.config,
-                random_rotation=self.config.random_rotation,
-                random_translation=self.config.random_translation
-            )
+            # Use provided datasets if available, otherwise create default ones
+            if self.train_dataset_provided is not None:
+                self.train_dataset = self.train_dataset_provided
+            else:
+                self.train_dataset = VoxMilesDataset(
+                    data_path=f"{self.data_path}/train",
+
+                    config=self.config,
+                    random_rotation=self.config.random_rotation,
+                    random_translation=self.config.random_translation
+                )
             
-            self.val_dataset = VoxMilesDataset(
-                data_path=f"{self.data_path}/val",
-                tokenizer=self.tokenizer,
-                config=self.config,
-                random_rotation=False,  # No rotation for validation
-                random_translation=0.0   # No translation for validation
-            )
+            if self.val_dataset_provided is not None:
+                self.val_dataset = self.val_dataset_provided
+            else:
+                self.val_dataset = VoxMilesDataset(
+                    data_path=f"{self.data_path}/val",
+                    config=self.config,
+                    random_rotation=False,  # No rotation for validation
+                    random_translation=0.0   # No translation for validation
+                )
         
         if stage == 'test' or stage is None:
-            self.test_dataset = VoxMilesDataset(
-                data_path=f"{self.data_path}/test",
-                tokenizer=self.tokenizer,
-                config=self.config,
-                random_rotation=False,  # No rotation for testing
-                random_translation=0.0   # No translation for testing
-            )
+            if self.test_dataset_provided is not None:
+                self.test_dataset = self.test_dataset_provided
+            else:
+                self.test_dataset = VoxMilesDataset(
+                    data_path=f"{self.data_path}/test",
+                    config=self.config,
+                    random_rotation=False,  # No rotation for testing
+                    random_translation=0.0   # No translation for testing
+                )
 
     def train_dataloader(self):
         """Get the training data loader."""

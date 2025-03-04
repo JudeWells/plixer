@@ -6,6 +6,7 @@ from rdkit import Chem
 import torch
 from torch.utils.data import Dataset
 
+from src.data.common.tokenizers.smiles_tokenizer import build_smiles_tokenizer
 from src.data.common.voxelization.config import Vox2SmilesDataConfig
 from src.data.common.voxelization.molecule_utils import (
     load_mol_from_pickle,
@@ -49,20 +50,19 @@ class VoxMilesDataset(Dataset):
     def __init__(
         self,
         data_path: str,
-        tokenizer,
         config: Vox2SmilesDataConfig,
-        random_rotation: bool = None,
-        random_translation: float = None
+        random_rotation: bool = True,
+        random_translation: float = 6.0
     ):
         self.data_path = data_path
         self.data = glob.glob(f"{data_path}/*.pickle")
-        self.tokenizer = tokenizer
-        self.tokenizer.pad_token = tokenizer.pad_token
+        self.tokenizer = build_smiles_tokenizer()
+        self.tokenizer.pad_token = self.tokenizer.pad_token
         self.max_smiles_len = config.max_smiles_len
         
         # Override config values if provided
-        self.random_rotation = random_rotation if random_rotation is not None else config.random_rotation
-        self.random_translation = random_translation if random_translation is not None else config.random_translation
+        self.random_rotation = random_rotation
+        self.random_translation = random_translation
         
         # Store the config
         self.config = config
@@ -100,6 +100,163 @@ class VoxMilesDataset(Dataset):
             max_atom_dist=self.config.max_atom_dist,
             dtype=self.config.dtype
         )
+        
+        # Voxelize the molecule
+        voxel = voxelize_molecule(mol, temp_config)
+        
+        # Get the SMILES string
+        smiles_str = self.tokenizer.bos_token + Chem.MolToSmiles(mol) + self.tokenizer.eos_token
+        
+        # Tokenize the SMILES string
+        smiles = self.tokenizer(
+            smiles_str,
+            padding='max_length',
+            max_length=self.max_smiles_len,
+            truncation=True,
+            return_tensors="pt"
+        )
+        
+        # Return the voxelized molecule and tokenized SMILES string
+        return {
+            "pixel_values": voxel,
+            "input_ids": smiles["input_ids"].squeeze(),
+            "attention_mask": smiles["attention_mask"].squeeze(),
+            "smiles_str": smiles_str
+        }
+
+
+import os
+import glob
+import pandas as pd
+import numpy as np
+from rdkit import Chem
+import torch
+from torch.utils.data import Dataset
+
+from src.data.common.voxelization.config import Vox2SmilesDataConfig
+from src.data.common.voxelization.molecule_utils import voxelize_molecule
+
+
+class ParquetVoxMilesDataset(Dataset):
+    """
+    Dataset for voxelized molecules with SMILES strings loaded from parquet files.
+    Each parquet file contains multiple molecules, allowing efficient storage and loading.
+    """
+    def __init__(
+        self,
+        data_path: str,
+        config: Vox2SmilesDataConfig,
+        index_file: str = "index.csv",
+        random_rotation: bool = None,
+        random_translation: float = None,
+        cache_size: int = 10,
+    ):
+        self.data_path = data_path
+        self.tokenizer = build_smiles_tokenizer()
+        self.tokenizer.pad_token = self.tokenizer.pad_token
+        self.max_smiles_len = config.max_smiles_len
+        
+        # Override config values if provided
+        self.random_rotation = random_rotation if random_rotation is not None else config.random_rotation
+        self.random_translation = random_translation if random_translation is not None else config.random_translation
+        
+        # Store the config
+        self.config = config
+        
+        # Load the index file which lists all parquet files
+        index_path = os.path.join(data_path, index_file)
+        if os.path.exists(index_path):
+            self.file_list = pd.read_csv(index_path)['parquet_file'].tolist()
+        else:
+            # If no index file, find all parquet files in the directory
+            self.file_list = glob.glob(os.path.join(data_path, "*.parquet"))
+        
+        # Get the number of molecules in each file
+        self.file_sizes = []
+        self.total_molecules = 0
+        
+        for file_path in self.file_list:
+            # Just read the metadata to get row count (faster than loading data)
+            df = pd.read_parquet(file_path, columns=[])
+            file_size = len(df)
+            self.file_sizes.append(file_size)
+            self.total_molecules += file_size
+        
+        # Create a mapping from molecule index to file index and row index
+        self.molecule_map = []
+        for file_idx, size in enumerate(self.file_sizes):
+            for row_idx in range(size):
+                self.molecule_map.append((file_idx, row_idx))
+        
+        # Set up a simple cache to avoid reloading the same file multiple times
+        self.cache = {}
+        self.cache_size = cache_size
+
+    def __len__(self):
+        return self.total_molecules
+
+    def __getitem__(self, idx):
+        """
+        Load a molecule from a parquet file, voxelize it, and pair it with its SMILES string.
+        """
+        file_idx, row_idx = self.molecule_map[idx]
+        file_path = self.file_list[file_idx]
+        
+        # Try to get the file from cache
+        if file_path not in self.cache:
+            # If cache is full, remove the oldest entry
+            if len(self.cache) >= self.cache_size:
+                # Get the least recently used file
+                oldest_file = next(iter(self.cache))
+                del self.cache[oldest_file]
+            
+            # Load the parquet file
+            self.cache[file_path] = pd.read_parquet(file_path)
+        
+        # Get the molecule data
+        mol_data = self.cache[file_path].iloc[row_idx]
+        
+        # Reconstruct the RDKit molecule from the mol block
+        mol_block = mol_data['mol_block']
+        mol = Chem.MolFromMolBlock(mol_block.decode() if isinstance(mol_block, bytes) else mol_block)
+        
+        if mol is None:
+            # If we can't parse the mol block, try to create from SMILES
+            smiles = mol_data['smiles']
+            mol = Chem.MolFromSmiles(smiles)
+            
+            # If we still can't create a molecule, use a fallback (benzene)
+            if mol is None:
+                mol = Chem.MolFromSmiles("c1ccccc1")
+        
+        # Create a temporary config with the current instance's settings
+        temp_config = Vox2SmilesDataConfig(
+            vox_size=self.config.vox_size,
+            box_dims=self.config.box_dims,
+            random_rotation=self.random_rotation,
+            random_translation=self.random_translation,
+            has_protein=False,  # Vox2Smiles doesn't use protein channels
+            ligand_channel_names=self.config.ligand_channel_names,
+            protein_channel_names=self.config.protein_channel_names,
+            protein_channels=self.config.protein_channels,
+            ligand_channels=self.config.ligand_channels,
+            max_atom_dist=self.config.max_atom_dist,
+            dtype=self.config.dtype
+        )
+        
+        # Add hydrogens and generate 3D coordinates if needed
+        if mol.GetNumConformers() == 0:
+            mol = Chem.AddHs(mol)
+            # Use a standard RDKit conformer generation
+            try:
+                from rdkit.Chem import AllChem
+                AllChem.EmbedMolecule(mol, AllChem.ETKDG())
+            except:
+                # If conformer generation fails, we'll skip this molecule
+                # and provide a fallback
+                mol = Chem.MolFromSmiles("c1ccccc1")
+                mol = Chem.AddHs(mol)
+                AllChem.EmbedMolecule(mol, AllChem.ETKDG())
         
         # Voxelize the molecule
         voxel = voxelize_molecule(mol, temp_config)
@@ -232,4 +389,4 @@ class CombinedDataset(Dataset):
         else:
             # Sample from Vox2Smiles dataset
             idx_voxmiles = idx % self.n_voxmiles
-            return self.voxmiles_dataset[idx_voxmiles] 
+            return self.voxmiles_dataset[idx_voxmiles]
