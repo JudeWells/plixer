@@ -58,7 +58,7 @@ class VoxMilesDataModule(LightningDataModule):
                 self.val_dataset = self.val_dataset_provided
             else:
                 self.val_dataset = VoxMilesDataset(
-                    data_path=f"{self.data_path}/val",
+                    data_path=f"{self.data_path}/val_5k",
                     config=self.config,
                     random_rotation=False,  # No rotation for validation
                     random_translation=0.0   # No translation for validation
