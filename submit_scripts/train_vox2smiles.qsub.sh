@@ -18,8 +18,11 @@ hostname
 echo "#################### QSUB SCRIPT START ####################"
 cat "$0" # print the contents of this file to the log
 echo "####################  QSUB SCRIPT END  ####################"
-conda activate venvPF
-ROOT_DIR='/SAN/orengolab/cath_plm/ProFam/profam'
+conda activate vox
+which python
+ROOT_DIR='/SAN/orengolab/nsp13/VoxelDiffOuter/VoxelDiff2/'
+export HYDRA_FULL_ERROR=1
+export PYTHONPATH=$ROOT_DIR:$PYTHONPATH
 cd $ROOT_DIR
-python ${ROOT_DIR}/src/train.py data=af50_single_seq trainer=gpu logger=wandb
+python ${ROOT_DIR}/src/train.py +experiment=train_vox2smiles_all
 date
