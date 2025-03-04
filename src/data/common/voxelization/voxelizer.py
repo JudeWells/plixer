@@ -202,6 +202,9 @@ class UnifiedVoxelGrid:
             torch.pow(ax - px, 2) + torch.pow(ay - py, 2) + torch.pow(az - pz, 2)
         )
         occs = 1 - torch.exp(-1 * torch.pow(vdws / dist, 12))  # voxel occupancies
+        
+        # Convert occs to the same dtype as out to avoid dtype mismatch
+        occs = occs.to(dtype=out.dtype)
 
         for i, mask in enumerate(channels):
             if torch.any(mask):
