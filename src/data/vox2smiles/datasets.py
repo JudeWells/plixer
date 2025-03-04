@@ -170,7 +170,8 @@ class ParquetVoxMilesDataset(Dataset):
             self.file_list = pd.read_csv(index_path)['parquet_file'].tolist()
         else:
             print("Indexing molecule files")
-            self.file_list = glob.glob(os.path.join(data_path, "*.parquet"))
+            self.file_list = glob.glob(os.path.join(data_path, "**/*.parquet"))
+            print(f"Found {len(self.file_list)} parquet files")
         
         # Get the number of molecules in each file
         self.file_sizes = []
