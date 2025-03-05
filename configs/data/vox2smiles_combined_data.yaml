@@ -6,7 +6,7 @@ defaults:
 data_path: "../geom/rdkit_folder/drugs"
 config:
   _target_: src.data.common.voxelization.config.Vox2SmilesDataConfig
-  batch_size: 2
+  batch_size: 12
   max_smiles_len: 200
   has_protein: false
 train_dataset:
@@ -20,6 +20,7 @@ train_dataset:
     config: ${data.config}
   poc2mol_output_dataset:
     _target_: src.data.vox2smiles.datasets.Poc2MolOutputDataset
+    ckpt_path: /mnt/disk2/VoxelDiffOuter/VoxelDiff2/logs/poc2mol/runs/2024-07-09_14-52-36/checkpoints/last_best.ckpt
     complex_dataset:
       _target_: src.data.poc2mol.datasets.ComplexDataset
       pdb_dir: ../PDBbind_v2020_refined-set

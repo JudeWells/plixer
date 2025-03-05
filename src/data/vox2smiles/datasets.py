@@ -243,7 +243,7 @@ class ParquetVoxMilesDataset(Dataset):
             
             # If we still can't create a molecule, use a fallback (benzene)
             if mol is None:
-                mol = Chem.MolFromSmiles("c1ccccc1")
+                return self.__getitem__(np.random.randint(0, len(self)))
 
         
         # Add hydrogens and generate 3D coordinates if needed
@@ -297,6 +297,7 @@ class Poc2MolOutputDataset(Dataset):
         poc2mol_model,
         complex_dataset,
         max_smiles_len=200,
+        ckpt_path: str = None,
     ):
         self.device = "cuda" if torch.cuda.is_available() else "cpu"
         self.poc2mol_model = poc2mol_model.to(complex_dataset.config.dtype).to(self.device)
@@ -304,7 +305,17 @@ class Poc2MolOutputDataset(Dataset):
         self.tokenizer = build_smiles_tokenizer()
         self.tokenizer.pad_token = self.tokenizer.pad_token
         self.max_smiles_len = max_smiles_len
-        
+        if ckpt_path is not None:
+            # Load the Lightning checkpoint
+            checkpoint = torch.load(ckpt_path)
+            # Extract the model state dict from the Lightning checkpoint
+            if "state_dict" in checkpoint:
+                # Remove 'model.' prefix if it exists in the keys
+                state_dict = {k.replace('model.', ''): v for k, v in checkpoint["state_dict"].items()}
+                self.poc2mol_model.model.load_state_dict(state_dict)
+            else:
+                # Fallback to direct loading if it's not a Lightning checkpoint
+                self.poc2mol_model.load_state_dict(checkpoint)
         # Put the model in eval mode
         self.poc2mol_model.eval()
 

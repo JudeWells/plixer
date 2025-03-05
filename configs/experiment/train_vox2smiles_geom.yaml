@@ -5,21 +5,21 @@ defaults:
   - override /model: vox2smiles
   - override /logger: wandb.yaml
 
-task_name: "vox2smilesGeom"
+task_name: "vox2smilesCombined"
 tags: ["dev", "resume_from_ckpt"]
 train: True
 test: True
 optimized_metric: "val/loss"
-ckpt_path: "/mnt/disk2/VoxelDiffOuter/voxmiles/logs/vox_to_smiles/runs/2025-03-02_23-37-11/checkpoints/last.ckpt"
+ckpt_path: "/mnt/disk2/VoxelDiffOuter/VoxelDiff2/logs/vox2smilesZinc/runs/2025-03-04_15-55-56/checkpoints/last.ckpt"
 seed: 42
 
 logger:
   wandb:
     project: "voxelSmiles"
     entity: "cath"
-    group: "vox2smilesZinc"
+    group: "vox2smilesCombined"
     job_type: "train"
-    tags: ["dev", "resume_from_ckpt"]
+    tags: ["combined", "resume_from_ckpt"]
     save_dir: "${paths.output_dir}"
     offline: False
     id: null # pass correct id to resume experiment!

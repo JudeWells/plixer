@@ -1,6 +1,7 @@
 import os
 import glob
 import torch
+import numpy as np
 from torch.utils.data import Dataset
 from rdkit import Chem
 from src.data.common.voxelization.config import Poc2MolDataConfig
@@ -70,6 +71,8 @@ class ComplexDataset(Dataset):
             dtype=eval(self.config.dtype) if isinstance(self.config.dtype, str) else self.config.dtype
         )
         ligand_mol_object = Chem.MolFromMol2File(lig_path)
+        if ligand_mol_object is None:
+            return self.__getitem__(np.random.randint(0, len(self)))
         if self.config.remove_hydrogens:
             ligand_mol_object = Chem.RemoveHs(ligand_mol_object)
         # get the smiles string
