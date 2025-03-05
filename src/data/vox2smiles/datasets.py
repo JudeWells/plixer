@@ -170,7 +170,7 @@ class ParquetVoxMilesDataset(Dataset):
             self.file_list = pd.read_csv(index_path)['parquet_file'].tolist()
         else:
             print("Indexing molecule files")
-            self.file_list = glob.glob(os.path.join(data_path, "**/*.parquet"))
+            self.file_list = glob.glob(os.path.join(data_path, "**.parquet"))
             print(f"Found {len(self.file_list)} parquet files")
         
         # Get the number of molecules in each file
@@ -189,7 +189,7 @@ class ParquetVoxMilesDataset(Dataset):
         for file_idx, size in enumerate(self.file_sizes):
             for row_idx in range(size):
                 self.molecule_map.append((file_idx, row_idx))
-        print("Molecule file index created")
+        print(f"Molecule file index created with {len(self.molecule_map)} molecules")
         # Set up a simple cache to avoid reloading the same file multiple times
         self.cache = {}
         self.cache_size = cache_size
@@ -275,7 +275,7 @@ class ParquetVoxMilesDataset(Dataset):
             max_length=self.max_smiles_len,
             truncation=True,
             return_tensors="pt"
-        )
+        ).to(voxel.device)
         if self.tokenizer.unk_token_id in smiles.input_ids:
             print(f"UNK token in SMILES string: {smiles_str}")
         # Return the voxelized molecule and tokenized SMILES string
@@ -296,13 +296,13 @@ class Poc2MolOutputDataset(Dataset):
         self,
         poc2mol_model,
         complex_dataset,
-        tokenizer,
-        max_smiles_len=200
+        max_smiles_len=200,
     ):
-        self.poc2mol_model = poc2mol_model
+        self.device = "cuda" if torch.cuda.is_available() else "cpu"
+        self.poc2mol_model = poc2mol_model.to(complex_dataset.config.dtype).to(self.device)
         self.complex_dataset = complex_dataset
-        self.tokenizer = tokenizer
-        self.tokenizer.pad_token = tokenizer.pad_token
+        self.tokenizer = build_smiles_tokenizer()
+        self.tokenizer.pad_token = self.tokenizer.pad_token
         self.max_smiles_len = max_smiles_len
         
         # Put the model in eval mode
@@ -320,19 +320,19 @@ class Poc2MolOutputDataset(Dataset):
         complex_data = self.complex_dataset[idx]
         protein_voxel = complex_data['protein']
         ground_truth_ligand_voxel = complex_data['ligand']
-        
+        smiles_str = complex_data['smiles']
         # Generate a predicted ligand voxel using Poc2Mol
         with torch.no_grad():
-            predicted_ligand_voxel, _ = self.poc2mol_model(protein_voxel.unsqueeze(0))
+            predicted_ligand_voxel, loss = self.poc2mol_model(
+                protein_voxel.unsqueeze(0),
+                labels=ground_truth_ligand_voxel.unsqueeze(0)
+            )
             predicted_ligand_voxel = predicted_ligand_voxel.squeeze(0)
             # Move the tensor to CPU to avoid pin_memory issues
-            predicted_ligand_voxel = predicted_ligand_voxel.cpu()
+            predicted_ligand_voxel = predicted_ligand_voxel
         
-        # Get the SMILES string for the ground truth ligand
-        # This would require additional processing to convert the voxel to a SMILES string
-        # For now, we'll assume we have access to the SMILES string from somewhere else
-        # In a real implementation, you would need to get this from your data source
-        smiles_str = self.tokenizer.bos_token + "C1=CC=CC=C1" + self.tokenizer.eos_token  # Placeholder
+
+        smiles_str = self.tokenizer.bos_token + smiles_str + self.tokenizer.eos_token
         
         # Tokenize the SMILES string
         smiles = self.tokenizer(
@@ -340,15 +340,16 @@ class Poc2MolOutputDataset(Dataset):
             padding='max_length',
             max_length=self.max_smiles_len,
             truncation=True,
-            return_tensors="pt"
-        )
+            return_tensors="pt",
+        ).to(self.device)
         
         # Return the predicted ligand voxel and tokenized SMILES string
         return {
             "pixel_values": predicted_ligand_voxel,
             "input_ids": smiles["input_ids"].squeeze(),
             "attention_mask": smiles["attention_mask"].squeeze(),
-            "smiles_str": smiles_str
+            "smiles_str": smiles_str,
+            "poc2mol_loss": loss,
         }
 
 
@@ -361,19 +362,22 @@ class CombinedDataset(Dataset):
         self,
         poc2mol_output_dataset,
         voxmiles_dataset,
-        ratio=0.5
+        ratio=0.5, # probability of poc2mol
+        max_poc2mol_loss=1.2, # worst loss tolerated to train on poc2mol
     ):
         self.poc2mol_output_dataset = poc2mol_output_dataset
         self.voxmiles_dataset = voxmiles_dataset
         self.ratio = ratio
-        
+        self.max_poc2mol_loss = max_poc2mol_loss
         # Calculate the number of samples from each dataset
         self.n_poc2mol = len(poc2mol_output_dataset)
         self.n_voxmiles = len(voxmiles_dataset)
         
         # Calculate the total number of samples
         self.n_total = self.n_poc2mol + self.n_voxmiles
-        
+        print(f"Total number of samples: {self.n_total}")
+        print(f"Number of Poc2Mol samples: {self.n_poc2mol}")
+        print(f"Number of Vox2Smiles samples: {self.n_voxmiles}")
         # Calculate the probability of selecting a sample from each dataset
         self.p_poc2mol = self.n_poc2mol / self.n_total
         self.p_voxmiles = self.n_voxmiles / self.n_total
@@ -390,8 +394,13 @@ class CombinedDataset(Dataset):
         if np.random.random() < self.ratio:
             # Sample from Poc2Mol output dataset
             idx_poc2mol = idx % self.n_poc2mol
-            return self.poc2mol_output_dataset[idx_poc2mol]
+            result = self.poc2mol_output_dataset[idx_poc2mol]
+            if result['poc2mol_loss'] < self.max_poc2mol_loss:
+                return result
+            else:
+                return self.voxmiles_dataset[idx % self.n_voxmiles]
         else:
             # Sample from Vox2Smiles dataset
             idx_voxmiles = idx % self.n_voxmiles
-            return self.voxmiles_dataset[idx_voxmiles]
+            result = self.voxmiles_dataset[idx_voxmiles]
+            return result

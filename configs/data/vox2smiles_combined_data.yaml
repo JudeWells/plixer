@@ -1,0 +1,38 @@
+_target_: src.data.vox2smiles.data_module.VoxMilesDataModule
+defaults:
+  - /model@train_dataset.poc2mol_output_dataset.poc2mol_model: poc2mol
+  - _self_
+  # - /data@train_dataset.poc2mol_output_dataset.complex_dataset: poc2mol_data
+data_path: "../geom/rdkit_folder/drugs"
+config:
+  _target_: src.data.common.voxelization.config.Vox2SmilesDataConfig
+  batch_size: 2
+  max_smiles_len: 200
+  has_protein: false
+train_dataset:
+  _target_: src.data.vox2smiles.datasets.CombinedDataset
+  ratio: 0.5 # probability of poc2mol
+  voxmiles_dataset:
+    _target_: src.data.vox2smiles.datasets.ParquetVoxMilesDataset
+    data_path: /mnt/disk2/zinc20_parquet
+    random_rotation: true
+    random_translation: 6.0
+    config: ${data.config}
+  poc2mol_output_dataset:
+    _target_: src.data.vox2smiles.datasets.Poc2MolOutputDataset
+    complex_dataset:
+      _target_: src.data.poc2mol.datasets.ComplexDataset
+      pdb_dir: ../PDBbind_v2020_refined-set
+      translation: 6.0
+      rotate: true
+      config: 
+        _target_: src.data.common.voxelization.config.Poc2MolDataConfig
+        batch_size: 1
+        has_protein: true
+        protein_channel_indices: [0, 1, 2, 3, 4, 5]
+        ligand_channel_indices: [5, 6, 7, 8, 9, 10, 11, 12, 13, 14]
+        vox_size: 0.75
+        box_dims: [24.0, 24.0, 24.0]
+        random_rotation: true
+        random_translation: 6.0
+

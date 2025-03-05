@@ -2,7 +2,7 @@ import os
 import glob
 import torch
 from torch.utils.data import Dataset
-
+from rdkit import Chem
 from src.data.common.voxelization.config import Poc2MolDataConfig
 from src.data.common.voxelization.molecule_utils import (
     prepare_protein_ligand_complex,
@@ -69,7 +69,11 @@ class ComplexDataset(Dataset):
             max_atom_dist=self.max_atom_dist,
             dtype=eval(self.config.dtype) if isinstance(self.config.dtype, str) else self.config.dtype
         )
-        
+        ligand_mol_object = Chem.MolFromMol2File(lig_path)
+        if self.config.remove_hydrogens:
+            ligand_mol_object = Chem.RemoveHs(ligand_mol_object)
+        # get the smiles string
+        smiles = Chem.MolToSmiles(ligand_mol_object)
         # Voxelize the complex
         protein_voxel, ligand_voxel, _ = voxelize_complex(pdb_path, lig_path, temp_config)
         
@@ -77,7 +81,8 @@ class ComplexDataset(Dataset):
         return {
             'ligand': ligand_voxel,
             'protein': protein_voxel,
-            'name': directory.split('/')[-1]
+            'name': directory.split('/')[-1],
+            'smiles': smiles
         }
 
 

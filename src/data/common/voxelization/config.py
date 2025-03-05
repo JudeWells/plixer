@@ -58,6 +58,7 @@ class VoxelizationConfig:
     
     # Data type for tensors
     dtype: torch.dtype = torch.float16
+    remove_hydrogens: bool = True
 
 
 @dataclass

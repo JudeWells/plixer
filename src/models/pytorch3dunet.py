@@ -214,6 +214,7 @@ class ResidualUNetSE3D(AbstractUNet):
         if labels is not None:
             loss = self.loss_fn(preds, labels)
             return preds, loss
+        return preds
 
 if __name__=="__main__":
     # Define input tensor with shape (batch_size, channels, depth, height, width)

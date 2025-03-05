@@ -21,7 +21,13 @@ class CombinedProteinToSmilesModel(L.LightningModule):
     Vox2Smiles to generate SMILES strings from ligand voxels.
     """
     
-    def __init__(self, poc2mol_model, vox2smiles_model, config, override_optimizer_on_load: bool = False):
+    def __init__(
+            self, 
+            poc2mol_model, 
+            vox2smiles_model, 
+            config, 
+            override_optimizer_on_load: bool = False
+        ):
         """
         Initialize the combined model.
         
