@@ -14,7 +14,13 @@ class ComplexDataset(Dataset):
     generates protein-ligand complexes on the fly
     from pdb files and voxelizes them
     """
-    def __init__(self, config, pdb_dir, rotate=True, translation=0.0):
+    def __init__(
+        self, 
+        config, 
+        pdb_dir, 
+        rotate=True, 
+        translation=0.0
+    ):
         self.config = config
         self.pdb_dir = pdb_dir
         self.rotate = rotate
@@ -150,19 +156,3 @@ class DockstringTestDataset(ComplexDataset):
     def __len__(self):
         return len(self.voxel_files)
 
-
-
-def build_loaders(config, dtype):
-    path_to_split_csv = '../LP-PDBBind/dataset/LP_PDBBind.csv'
-    df = pd.read_csv(path_to_split_csv)
-    df.columns = ['pdb_id'] + list(df.columns)[1:]
-    VoxelDataset = LigMaskDataset
-    train_dataloader = DataLoader(VoxelDataset(config, fnames=df[df.new_split == 'train'].pdb_id.values, dtype=dtype),
-                                  batch_size=config['batch_size'], shuffle=config.get('shufffle', True))
-    val_dataloader =  DataLoader(VoxelDataset(config, fnames=df[df.new_split == 'val'].pdb_id.values,
-                                              dtype=dtype, single_rotation=True),
-                                 batch_size=config['batch_size'], shuffle=False)
-    test_dataloader = DataLoader(VoxelDataset(config, fnames=df[df.new_split == 'test'].pdb_id.values,
-                                              dtype=dtype, single_rotation=True),
-                                 batch_size=config['batch_size'], shuffle=False)
-    return train_dataloader, val_dataloader, test_dataloader

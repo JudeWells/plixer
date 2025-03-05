@@ -67,7 +67,7 @@ class ComplexDataset(Dataset):
             protein_channels=self.config.protein_channels,
             ligand_channels=self.config.ligand_channels,
             max_atom_dist=self.max_atom_dist,
-            dtype=self.config.dtype
+            dtype=eval(self.config.dtype) if isinstance(self.config.dtype, str) else self.config.dtype
         )
         
         # Voxelize the complex

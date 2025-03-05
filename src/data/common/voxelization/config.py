@@ -67,7 +67,7 @@ class Poc2MolDataConfig(VoxelizationConfig):
     Extends the base VoxelizationConfig with Poc2Mol-specific parameters.
     """
     batch_size: int = 32
-    
+    has_protein: bool = True
     # Indices of channels to use for ligand and protein
     # These are indices into the voxelized output, not the channel mappings above
     ligand_channel_indices: List[int] = field(default_factory=lambda: [5, 6, 7, 8, 9, 10, 11, 12, 13, 14])
@@ -75,6 +75,7 @@ class Poc2MolDataConfig(VoxelizationConfig):
     
     # Optional list of specific filenames to use
     fnames: Optional[List[str]] = None
+    
 
 
 @dataclass
