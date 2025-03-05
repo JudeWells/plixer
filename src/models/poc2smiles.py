@@ -1,93 +1,273 @@
 import os
-import sys
 import torch
-from lightning import LightningModule
-from torchmetrics import MeanMetric
-from src.evaluation.visual import visualise_batch
+import torch.nn as nn
+import torch.optim as optim
+import lightning as L
+from torch.optim.lr_scheduler import StepLR
+import matplotlib.pyplot as plt
+import numpy as np
+from rdkit import Chem
+from rdkit.Chem import AllChem, Draw
+
 from src.models.poc2mol import Poc2Mol
+from src.models.vox2smiles import VoxToSmilesModel
+from src.utils.metrics import calculate_validity, calculate_novelty, calculate_uniqueness
 
 
-class CombinedProteinToSmilesModel(LightningModule):
-    def __init__(self, poc2mol_model, vox2smiles_model, config):
+class CombinedProteinToSmilesModel(L.LightningModule):
+    """
+    Combined model that takes protein voxels as input and outputs SMILES strings.
+    It uses Poc2Mol to generate ligand voxels from protein voxels, and then
+    Vox2Smiles to generate SMILES strings from ligand voxels.
+    """
+    
+    def __init__(
+            self, 
+            poc2mol_model, 
+            vox2smiles_model, 
+            config, 
+            override_optimizer_on_load: bool = False
+        ):
+        """
+        Initialize the combined model.
+        
+        Args:
+            poc2mol_model: Poc2Mol model
+            vox2smiles_model: Vox2Smiles model
+            config: Configuration dictionary
+        """
         super().__init__()
-        self.poc2mol = poc2mol_model
-        self.vox2smiles = vox2smiles_model
+        self.poc2mol_model = poc2mol_model
+        self.vox2smiles_model = vox2smiles_model
         self.config = config
-
-    def forward(self, protein_voxel):
-        # Generate molecule voxel from protein
-        mol_voxel, _ = self.poc2mol(protein_voxel)
-
-        # Generate SMILES from molecule voxel
-        smiles_output = self.vox2smiles(mol_voxel)
-
-        return mol_voxel, smiles_output
-
+        self.save_hyperparameters(ignore=["poc2mol_model", "vox2smiles_model"])
+        
+        # Disable automatic optimization to handle the two models separately
+        self.automatic_optimization = False
+        
+        # Create directory for saving images
+        if self.config.get("img_save_dir"):
+            os.makedirs(self.config["img_save_dir"], exist_ok=True)
+        
+        self.override_optimizer_on_load = override_optimizer_on_load
+    
+    def forward(self, protein_voxels):
+        """
+        Forward pass through the combined model.
+        
+        Args:
+            protein_voxels: Protein voxels [batch_size, channels, x, y, z]
+            
+        Returns:
+            Dictionary containing:
+                - logits: Logits for SMILES tokens [batch_size, seq_len, vocab_size]
+                - ligand_voxels: Generated ligand voxels [batch_size, channels, x, y, z]
+        """
+        # Generate ligand voxels from protein voxels
+        poc2mol_output = self.poc2mol_model(protein_voxels)
+        ligand_voxels = poc2mol_output["ligand_voxels"]
+        
+        # Generate SMILES from ligand voxels
+        vox2smiles_output = self.vox2smiles_model(ligand_voxels)
+        
+        return {
+            "logits": vox2smiles_output["logits"],
+            "ligand_voxels": ligand_voxels,
+        }
+    
     def training_step(self, batch, batch_idx):
-        protein_voxel = batch["protein"]
-        target_mol_voxel = batch["ligand"]
-        target_smiles = batch["smiles"]
-
-        pred_mol_voxel, pred_smiles = self(protein_voxel)
-
-        # Calculate losses
-        mol_loss = self.poc2mol.model.loss(pred_mol_voxel, target_mol_voxel)
-        smiles_loss = self.vox2smiles.criterion(pred_smiles.logits, target_smiles)
-
-        total_loss = mol_loss + smiles_loss
-
-        self.train_loss(total_loss)
-        self.log("train/loss", self.train_loss, on_step=False, on_epoch=True, prog_bar=True)
-        return total_loss
-
+        """
+        Training step for the combined model.
+        
+        Args:
+            batch: Batch containing protein voxels, ligand voxels, and SMILES tokens
+            batch_idx: Batch index
+            
+        Returns:
+            Loss value
+        """
+        # Get optimizers
+        opt = self.optimizers()
+        
+        # Get protein voxels and SMILES tokens
+        protein_voxels = batch["protein_voxels"]
+        smiles_tokens = batch["smiles_tokens"]
+        
+        # Forward pass
+        output = self(protein_voxels)
+        logits = output["logits"]
+        
+        # Calculate loss
+        loss = self.vox2smiles_model.calculate_loss(logits, smiles_tokens)
+        
+        # Backward pass and optimization
+        opt.zero_grad()
+        self.manual_backward(loss)
+        opt.step()
+        
+        # Update learning rate
+        self.lr_schedulers().step()
+        
+        # Log metrics
+        self.log("train/loss", loss, on_step=True, on_epoch=True, prog_bar=True)
+        
+        return loss
+    
     def validation_step(self, batch, batch_idx):
-        protein_voxel = batch["protein"]
-        target_mol_voxel = batch["ligand"]
-        target_smiles = batch["smiles"]
-
-        pred_mol_voxel, pred_smiles = self(protein_voxel)
-
-        # Calculate losses
-        mol_loss = self.poc2mol.model.loss(pred_mol_voxel, target_mol_voxel)
-        smiles_loss = self.vox2smiles.criterion(pred_smiles.logits, target_smiles)
-
-        total_loss = mol_loss + smiles_loss
-
-        self.val_loss(total_loss)
-        self.log("val/loss", self.val_loss, on_step=False, on_epoch=True, prog_bar=True)
-
-        # Visualize results (adapt as needed)
-        if batch_idx < 3:
-            save_dir = f"{self.config.img_save_dir}/val"
-            visualise_batch(
-                target_mol_voxel[:4],
-                pred_mol_voxel[:4],
-                batch["name"][:4],
-                save_dir=save_dir,
-                batch=str(batch_idx)
-            )
-            self.vox2smiles.visualize_smiles(batch, pred_smiles)
-
-        return total_loss
-
-    def test_step(self, batch, batch_idx):
-        # Similar to validation_step, but with additional metrics if needed
-        pass
-
+        """
+        Validation step for the combined model.
+        
+        Args:
+            batch: Batch containing protein voxels, ligand voxels, and SMILES tokens
+            batch_idx: Batch index
+            
+        Returns:
+            Dictionary containing loss and generated SMILES
+        """
+        # Get protein voxels and SMILES tokens
+        protein_voxels = batch["protein_voxels"]
+        smiles_tokens = batch["smiles_tokens"]
+        true_smiles = batch.get("smiles_strings", [])
+        
+        # Forward pass
+        output = self(protein_voxels)
+        logits = output["logits"]
+        ligand_voxels = output["ligand_voxels"]
+        
+        # Calculate loss
+        loss = self.vox2smiles_model.calculate_loss(logits, smiles_tokens)
+        
+        # Generate SMILES
+        generated_smiles = self.vox2smiles_model.generate_smiles(ligand_voxels)
+        
+        # Log metrics
+        self.log("val/loss", loss, on_step=False, on_epoch=True, prog_bar=True)
+        
+        # Save some examples
+        if batch_idx == 0 and self.config.get("img_save_dir"):
+            self._save_examples(protein_voxels, ligand_voxels, true_smiles, generated_smiles)
+        
+        # Calculate chemical metrics
+        if len(generated_smiles) > 0:
+            validity = calculate_validity(generated_smiles)
+            self.log("val/validity", validity, on_step=False, on_epoch=True)
+            
+            if len(true_smiles) > 0:
+                novelty = calculate_novelty(generated_smiles, true_smiles)
+                uniqueness = calculate_uniqueness(generated_smiles)
+                self.log("val/novelty", novelty, on_step=False, on_epoch=True)
+                self.log("val/uniqueness", uniqueness, on_step=False, on_epoch=True)
+        
+        return {
+            "loss": loss,
+            "generated_smiles": generated_smiles,
+            "true_smiles": true_smiles,
+        }
+    
     def configure_optimizers(self):
-        optimizer = torch.optim.AdamW(self.parameters(), lr=self.config.lr)
-        scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=100, gamma=0.99)
+        """
+        Configure optimizers and learning rate schedulers.
+        
+        Returns:
+            Dictionary containing optimizer and scheduler
+        """
+        # Create optimizer
+        optimizer = optim.Adam(
+            self.parameters(),
+            lr=self.config.get("lr", 1e-4),
+            weight_decay=self.config.get("weight_decay", 0.0),
+        )
+        
+        # Create scheduler
+        scheduler = StepLR(
+            optimizer,
+            step_size=self.config.get("step_size", 100),
+            gamma=self.config.get("gamma", 0.99),
+        )
+        
         return {
             "optimizer": optimizer,
-            "lr_scheduler": {
-                "scheduler": scheduler,
-                "interval": "step",
-            },
+            "lr_scheduler": scheduler,
         }
+    
 
-if __name__=="__main__":
-    # instantiate Poc2Mol and Vox2Smiles models
-    poc2mol = Poc2Mol()
+    def on_load_checkpoint(self, checkpoint):
+        """Handle checkpoint loading, optionally overriding optimizer and scheduler states.
+
+        If override_optimizer_on_load is True, we'll remove the optimizer and
+        lr_scheduler states from the checkpoint, forcing Lightning to create new ones
+        based on the current config hyperparameters.
+        """
+        if self.override_optimizer_on_load:
+            if "optimizer_states" in checkpoint:
+                print(
+                    "Overriding optimizer state from checkpoint with current config values"
+                )
+                del checkpoint["optimizer_states"]
+
+            if "lr_schedulers" in checkpoint:
+                print(
+                    "Overriding lr scheduler state from checkpoint with current config values"
+                )
+                del checkpoint["lr_schedulers"]
+
+            # Set a flag to tell Lightning not to expect optimizer states
+            checkpoint["optimizer_states"] = []
+            checkpoint["lr_schedulers"] = []
 
 
-    pass
+
+    def _save_examples(self, protein_voxels, ligand_voxels, true_smiles, generated_smiles, num_examples=4):
+        """
+        Save examples of generated molecules.
+        
+        Args:
+            protein_voxels: Protein voxels [batch_size, channels, x, y, z]
+            ligand_voxels: Generated ligand voxels [batch_size, channels, x, y, z]
+            true_smiles: True SMILES strings
+            generated_smiles: Generated SMILES strings
+            num_examples: Number of examples to save
+        """
+        num_examples = min(num_examples, len(generated_smiles))
+        
+        for i in range(num_examples):
+            # Create figure
+            fig, axes = plt.subplots(1, 3, figsize=(15, 5))
+            
+            # Plot protein voxels
+            protein_vox = protein_voxels[i, 0].detach().cpu().numpy()
+            axes[0].imshow(np.max(protein_vox, axis=0), cmap="viridis")
+            axes[0].set_title("Protein Voxels")
+            axes[0].axis("off")
+            
+            # Plot ligand voxels
+            ligand_vox = ligand_voxels[i, 0].detach().cpu().numpy()
+            axes[1].imshow(np.max(ligand_vox, axis=0), cmap="viridis")
+            axes[1].set_title("Generated Ligand Voxels")
+            axes[1].axis("off")
+            
+            # Plot molecule
+            try:
+                mol = Chem.MolFromSmiles(generated_smiles[i])
+                if mol is not None:
+                    AllChem.Compute2DCoords(mol)
+                    img = Draw.MolToImage(mol, size=(300, 300))
+                    axes[2].imshow(img)
+                    axes[2].set_title(f"Generated: {generated_smiles[i]}")
+                else:
+                    axes[2].text(0.5, 0.5, f"Invalid SMILES: {generated_smiles[i]}", 
+                                ha="center", va="center")
+            except Exception as e:
+                axes[2].text(0.5, 0.5, f"Error: {str(e)}", ha="center", va="center")
+            
+            axes[2].axis("off")
+            
+            # Add true SMILES if available
+            if i < len(true_smiles):
+                fig.suptitle(f"True SMILES: {true_smiles[i]}")
+            
+            # Save figure
+            epoch = self.current_epoch
+            plt.tight_layout()
+            plt.savefig(os.path.join(self.config["img_save_dir"], f"example_{epoch}_{i}.png"))
+            plt.close(fig)

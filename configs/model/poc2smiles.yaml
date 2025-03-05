@@ -1,0 +1,58 @@
+_target_: src.models.poc2smiles.CombinedProteinToSmilesModel
+
+# General configuration for the combined model
+lr: 1e-4
+weight_decay: 0.0
+step_size: 100
+gamma: 0.99
+img_save_dir: ${paths.img_save_dir}
+
+# Poc2Mol model configuration
+poc2mol:
+  _target_: src.models.poc2mol.Poc2Mol
+  config:
+    _target_: src.models.poc2mol.ResUnetConfig
+    in_channels: 6
+    out_channels: 10
+    final_sigmoid: False
+    f_maps: 64
+    layer_order: 'gcr'
+    num_groups: 8
+    num_levels: 5
+    is_segmentation: True
+    conv_padding: 1
+    conv_upscale: 2
+    upsample: default
+    dropout_prob: 0.1
+    basic_module: ${oc.select:src.models.pytorch3dunet_lib.unet3d.buildingblocks.ResNetBlockSE, src.models.pytorch3dunet_lib.unet3d.buildingblocks.ResNetBlockSE}
+    loss:
+      name: BCEDiceLoss
+      weight: null
+      normalization: null
+      alpha: 0.2 # BCE weight
+      beta: 1 # DICE weight
+  matmul_precision: 'high'
+  lr: 1e-3
+  scheduler_name: constant_with_warmup
+  num_warmup_steps: 180
+  img_save_dir: ${paths.img_save_dir}
+
+# Vox2Smiles model configuration
+vox2smiles:
+  _target_: src.models.vox2smiles.VoxToSmilesModel
+  config:
+    hidden_size: 768
+    num_hidden_layers: 8
+    num_attention_heads: 8
+    intermediate_size: 3072
+    hidden_act: "gelu"
+    hidden_dropout_prob: 0.0
+    attention_probs_dropout_prob: 0.0
+    initializer_range: 0.02
+    layer_norm_eps: 1e-12
+    image_size: [32, 32, 32]
+    patch_size: 4
+    num_channels: 10
+    qkv_bias: True
+    encoder_stride: 2
+    lr: 5e-5 

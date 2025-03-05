@@ -1,4 +1,5 @@
 import os
+import multiprocessing
 from typing import Any, Dict, List, Optional, Tuple
 
 import hydra
@@ -9,6 +10,11 @@ from lightning import Callback, LightningDataModule, LightningModule, Trainer
 from lightning.pytorch.callbacks import LearningRateMonitor
 from lightning.pytorch.loggers import Logger
 from omegaconf import DictConfig
+
+# Set multiprocessing start method to 'spawn' to avoid CUDA issues
+# This must be done at the beginning of the program
+if __name__ == "__main__":
+    multiprocessing.set_start_method('spawn', force=True)
 
 rootutils.setup_root(__file__, indicator=".project-root", pythonpath=True)
 
@@ -88,7 +94,7 @@ def train(cfg: DictConfig) -> Tuple[Dict[str, Any], Dict[str, Any]]:
 
 @hydra.main(version_base="1.3", config_path="../configs", config_name="train.yaml")
 def main(cfg: DictConfig) -> Optional[float]:
-    extras(cfg)
+    # extras(cfg)
     metric_dict, _ = train(cfg)
     metric_value = get_metric_value(
         metric_dict=metric_dict, metric_name=cfg.get("optimized_metric")

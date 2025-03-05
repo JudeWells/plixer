@@ -60,6 +60,7 @@ class Poc2Mol(LightningModule):
         scheduler_kwargs: Dict[str, Any] = None,
         matmul_precision: str = 'high',
         compile: bool = False,
+        override_optimizer_on_load: bool = False,
     ) -> None:
         super().__init__()
         self.save_hyperparameters(logger=False)
@@ -89,7 +90,7 @@ class Poc2Mol(LightningModule):
         self.num_warmup_steps = num_warmup_steps
         self.img_save_dir = img_save_dir
         torch.set_float32_matmul_precision(matmul_precision)
-
+        self.override_optimizer_on_load = override_optimizer_on_load
     def forward(self, prot_vox, labels=None):
         return self.model(x=prot_vox, labels=labels)
 
@@ -136,3 +137,28 @@ class Poc2Mol(LightningModule):
             )
 
         return [optimizer], [scheduler]
+    
+    
+    def on_load_checkpoint(self, checkpoint):
+        """Handle checkpoint loading, optionally overriding optimizer and scheduler states.
+
+        If override_optimizer_on_load is True, we'll remove the optimizer and
+        lr_scheduler states from the checkpoint, forcing Lightning to create new ones
+        based on the current config hyperparameters.
+        """
+        if self.override_optimizer_on_load:
+            if "optimizer_states" in checkpoint:
+                print(
+                    "Overriding optimizer state from checkpoint with current config values"
+                )
+                del checkpoint["optimizer_states"]
+
+            if "lr_schedulers" in checkpoint:
+                print(
+                    "Overriding lr scheduler state from checkpoint with current config values"
+                )
+                del checkpoint["lr_schedulers"]
+
+            # Set a flag to tell Lightning not to expect optimizer states
+            checkpoint["optimizer_states"] = []
+            checkpoint["lr_schedulers"] = []

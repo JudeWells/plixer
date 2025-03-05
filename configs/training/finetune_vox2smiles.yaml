@@ -1,0 +1,54 @@
+# Configuration for fine-tuning Vox2Smiles on Poc2Mol outputs
+
+# Paths
+poc2mol_checkpoint: ${paths.checkpoints_dir}/poc2mol/best.ckpt
+vox2smiles_checkpoint: ${paths.checkpoints_dir}/vox2smiles/best.ckpt
+pdb_dir: ${paths.pdb_dir}
+val_pdb_dir: ${paths.val_pdb_dir}
+voxmiles_data_path: ${paths.voxmiles_data_path}
+output_dir: ${paths.output_dir}/vox2smiles_finetune
+
+# Training parameters
+batch_size: 16
+lr: 5e-6
+max_epochs: 10
+ratio: 0.5  # Ratio of Poc2Mol outputs to VoxMiles data
+seed: 42
+
+# Trainer configuration
+trainer:
+  accelerator: auto
+  devices: 1
+  max_epochs: ${training.max_epochs}
+  precision: 16
+  gradient_clip_val: 1.0
+  log_every_n_steps: 50
+  val_check_interval: 0.25
+  
+# Logger configuration
+logger:
+  _target_: lightning.pytorch.loggers.WandbLogger
+  project: vox2smiles-finetune
+  name: finetune-ratio-${training.ratio}-lr-${training.lr}
+  save_dir: ${training.output_dir}
+  
+# Callbacks
+callbacks:
+  model_checkpoint:
+    _target_: lightning.pytorch.callbacks.ModelCheckpoint
+    dirpath: ${training.output_dir}/checkpoints
+    filename: vox2smiles-finetune-{epoch:02d}-{val_loss:.4f}
+    monitor: val/loss
+    mode: min
+    save_top_k: 3
+    save_last: true
+    
+  lr_monitor:
+    _target_: lightning.pytorch.callbacks.LearningRateMonitor
+    logging_interval: step
+    
+  early_stopping:
+    _target_: lightning.pytorch.callbacks.EarlyStopping
+    monitor: val/loss
+    patience: 5
+    mode: min 

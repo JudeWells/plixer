@@ -80,6 +80,10 @@ class SkipLastTargetChannelWrapper(nn.Module):
         return self.loss(input, target)
 
 
+def return_x(x):
+    return x
+
+
 class _AbstractDiceLoss(nn.Module):
     """
     Base class for different implementations of Dice loss.
@@ -99,7 +103,7 @@ class _AbstractDiceLoss(nn.Module):
         elif normalization == 'softmax':
             self.normalization = nn.Softmax(dim=1)
         else:
-            self.normalization = lambda x: x
+            self.normalization = return_x
 
     def dice(self, input, target, weight):
         # actual Dice score computation; to be implemented by the subclass
