@@ -4,3 +4,4 @@
 logs/
 .vscode/
 wandb/
+vox2smiles_evaluation*/

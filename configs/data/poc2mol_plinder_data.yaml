@@ -6,21 +6,16 @@ train_dataset:
   _target_: src.data.poc2mol.datasets.PlinderParquetDataset
   data_path: "/mnt/disk2/plinder/2024-06/v2/processed_parquet_sample"
   config: ${data.config}
+val_dataset:
+  _target_: src.data.poc2mol.datasets.PlinderParquetDataset
+  data_path: "/mnt/disk2/plinder/2024-06/v2/processed_parquet_val"
+  config: ${data.config}
 config:
-  _target_: src.data.common.voxelization.config.Poc2MolDataConfig ##
-  batch_size: 32 ##
-  
-  fnames: null ##
-  protein_channel_indices: [0, 1, 2, 3, 4, 5] ##
-  ligand_channel_indices: [5, 6, 7, 8, 9, 10, 11, 12, 13, 14] ##
-  vox_size: 0.75
-  box_dims: [ 24.0, 24.0, 24.0 ]
-  random_rotation: true
-  random_translation: 6.0
-  has_protein: true
+  _target_: src.data.common.voxelization.config.Poc2MolDataConfig 
+  remove_hydrogens: true
+  batch_size: 32 
   ligand_channel_names:
     - carbon
-    - hydrogen
     - oxygen
     - nitrogen
     - sulfur
@@ -28,31 +23,34 @@ config:
     - fluorine
     - iodine
     - bromine
-    - x
+    - other
   protein_channel_names:
     - carbon
-    - hydrogen
     - oxygen
     - nitrogen
     - sulfur
-    - x
+  fnames: null 
+  protein_channel_indices: [0, 1, 2, 3]
+  ligand_channel_indices: [4, 5, 6, 7, 8, 9, 10, 11, 12]
+  vox_size: 0.75
+  box_dims: [ 24.0, 24.0, 24.0 ]
+  random_rotation: true
+  random_translation: 6.0
+  has_protein: true
   protein_channels:
     0: [ "C" ]
-    1: [ "H" ]
-    2: [ "O" ]
-    3: [ "N" ]
-    4: [ "S" ]
-    5: [ "C", "H", "O", "N", "S"]
+    1: [ "O" ]
+    2: [ "N" ]
+    3: [ "S" ]
   ligand_channels:
     0: [ "C" ]
-    1: [ "H" ]
-    2: [ "O" ]
-    3: [ "N" ]
-    4: [ "S" ]
-    5: [ "Cl" ]
-    6: [ "F" ]
-    7: [ "I" ]
-    8: [ "Br" ]
-    9: [ "C", "H", "O", "N", "S", "Cl", "F", "I", "Br" ]
+    1: [ "O" ]
+    2: [ "N" ]
+    3: [ "S" ]
+    4: [ "Cl" ]
+    5: [ "F" ]
+    6: [ "I" ]
+    7: [ "Br" ]
+    8: [ "C", "H", "O", "N", "S", "Cl", "F", "I", "Br" ]
   max_atom_dist: 32.0
   dtype: ${oc.select:torch.float16,torch.float16}

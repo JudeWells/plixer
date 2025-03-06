@@ -25,7 +25,7 @@ def serialize_molecular_data(data):
     pickled = pickle.dumps(data)
     return base64.b64encode(pickled)
 
-def process_parquet_file(parquet_file, output_file=None):
+def process_parquet_file(parquet_file, output_file=None, min_atoms=10):
     """
     Process a parquet file by converting raw PDB and MOL data into MolecularData objects.
     
@@ -77,7 +77,12 @@ def process_parquet_file(parquet_file, output_file=None):
                 
                 # Parse ligand
                 ligand_data = parser.parse_file(ligand_pdb_path, '.pdb')
-                
+                if len(ligand_data.element_symbols) < min_atoms:
+                    log.warning(f"Ligand has less than {min_atoms} atoms, skipping")
+                    continue
+                if len(protein_data.element_symbols) < min_atoms:
+                    log.warning(f"Protein has less than {min_atoms} atoms, skipping")
+                    continue
                 # Serialize the data
                 protein_serialized = serialize_molecular_data(protein_data)
                 ligand_serialized = serialize_molecular_data(ligand_data)
@@ -91,7 +96,8 @@ def process_parquet_file(parquet_file, output_file=None):
     
     # Save the processed dataframe
     log.info(f"Saving processed dataframe to {output_file}")
-    df.to_parquet(output_file)
+    df.drop(columns=['pdb_content', 'mol_block'], inplace=True)
+    df.to_parquet(output_file, index=False)
     
     return output_file
 
@@ -117,6 +123,11 @@ def main():
     for parquet_file in parquet_files:
         if args.output_dir:
             output_file = os.path.join(args.output_dir, os.path.basename(parquet_file))
+            # Check if the output file already exists
+            if os.path.exists(output_file):
+                log.info(f"Output file {output_file} already exists, skipping")
+                processed_files.append(output_file)
+                continue
         else:
             output_file = None
         

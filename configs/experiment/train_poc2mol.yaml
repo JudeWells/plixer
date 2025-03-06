@@ -29,3 +29,4 @@ model:
 
 trainer:
   val_check_interval: 50
+

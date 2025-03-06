@@ -63,7 +63,7 @@ def apply_random_translation(molecular_complex, max_translation):
     return molecular_complex
 
 
-def prune_distant_atoms(complex_obj, max_atom_dist):
+def prune_distant_atoms(complex_obj, max_atom_dist, has_protein=True):
     """Remove atoms that are too far from the ligand center."""
     if max_atom_dist is None or max_atom_dist <= 0:
         return complex_obj
@@ -98,7 +98,7 @@ def prune_distant_atoms(complex_obj, max_atom_dist):
     complex_obj.n_atoms_ligand = complex_obj.ligand_data.coords.shape[1]
 
     # If there are protein atoms, prune them too
-    if complex_obj.n_atoms_protein > 0:
+    if has_protein and complex_obj.n_atoms_protein > 0:
         prot_dists = torch.linalg.vector_norm(
             complex_obj.protein_data.coords.T - ligand_center, dim=1
         )
@@ -106,7 +106,7 @@ def prune_distant_atoms(complex_obj, max_atom_dist):
         complex_obj.protein_data.coords = complex_obj.protein_data.coords[:, prot_mask]
         complex_obj.protein_data.element_symbols = complex_obj.protein_data.element_symbols[prot_mask]
         complex_obj.n_atoms_protein = complex_obj.protein_data.coords.shape[1]
-    assert complex_obj.n_atoms_protein > 0, "Protein atoms were pruned to zero"
+        assert complex_obj.n_atoms_protein > 0, "Protein atoms were pruned to zero"
     assert complex_obj.n_atoms_ligand > 0, "Ligand atoms were pruned to zero"
     return complex_obj
 
@@ -124,7 +124,11 @@ def prepare_rdkit_molecule(mol, config):
         molecular_complex = apply_random_translation(molecular_complex, config.random_translation)
     
     if config.max_atom_dist is not None and config.max_atom_dist > 0:
-        molecular_complex = prune_distant_atoms(molecular_complex, config.max_atom_dist)
+        molecular_complex = prune_distant_atoms(
+            molecular_complex, 
+            config.max_atom_dist,
+            config.has_protein
+        )
     
     return molecular_complex
 

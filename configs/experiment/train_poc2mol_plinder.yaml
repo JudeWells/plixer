@@ -10,7 +10,6 @@ tags: ["dev"]
 train: True
 test: True
 optimized_metric: "val/loss"
-ckpt_path: null # over-ride this to resume training
 seed: 42
 
 logger:
@@ -25,7 +24,13 @@ logger:
     id: null # pass correct id to resume experiment!
 
 model:
-  override_optimizer_on_load: true
+  override_optimizer_on_load: false
+  config:
+    in_channels: 4
+    out_channels: 9
 
 trainer:
-  val_check_interval: 50
+  val_check_interval: null
+  check_val_every_n_epoch: 5
+
+ckpt_path: /mnt/disk2/VoxelDiffOuter/VoxelDiff2/logs/poc2mol/runs/2025-03-06_16-37-48/checkpoints/last.ckpt

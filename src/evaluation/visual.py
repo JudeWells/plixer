@@ -72,15 +72,15 @@ def visualise_batch(lig, pred, names, angles=None, save_dir=None, batch='none'):
     # Define colors for each atom type
     colors = np.zeros((lig.shape[1], 4))
     colors[0] = mcolors.to_rgba('green')  # carbon_ligand
-    colors[1] = mcolors.to_rgba('white')  # hydrogen_ligand
-    colors[2] = mcolors.to_rgba('red')  # oxygen_ligand
-    colors[3] = mcolors.to_rgba('blue')  # nitrogen_ligand
-    colors[4] = mcolors.to_rgba('yellow')  # sulfur_ligand
-    colors[5] = mcolors.to_rgba('magenta')  # other_ligand
-    colors[6] = mcolors.to_rgba('magenta')  # other_ligand
-    colors[7] = mcolors.to_rgba('magenta')  # other_ligand
-    colors[8] = mcolors.to_rgba('magenta')  # other_ligand
-    colors[9] = mcolors.to_rgba('cyan')  # other_ligand
+    # colors[1] = mcolors.to_rgba('white')  # hydrogen_ligand
+    colors[1] = mcolors.to_rgba('red')  # oxygen_ligand
+    colors[2] = mcolors.to_rgba('blue')  # nitrogen_ligand
+    colors[3] = mcolors.to_rgba('yellow')  # sulfur_ligand
+    colors[4] = mcolors.to_rgba('magenta')  # chlorine_ligand
+    colors[5] = mcolors.to_rgba('magenta')  # fluorine_ligand
+    colors[6] = mcolors.to_rgba('magenta')  # iodine_ligand
+    colors[7] = mcolors.to_rgba('magenta')  # bromine_ligand
+    colors[8] = mcolors.to_rgba('cyan')  # other_ligand
 
     # Set transparency for all colors
     colors[:, 3] = 0.2
@@ -152,8 +152,8 @@ def visualise_batch(lig, pred, names, angles=None, save_dir=None, batch='none'):
 if __name__=="__main__":
     import yaml
     from torch.utils.data import DataLoader
-    from src.data.poc2mol_datasets import ComplexDataset
-    from src.data.poc2mol_data_module import DataConfig
+    from src.data.poc2mol.datasets import PlinderParquetDataset
+    from src.data.common.voxelization.config import Poc2MolDataConfig
 
     with open('configs/data/data.yaml', 'r') as file:
         yaml_config = yaml.safe_load(file)
