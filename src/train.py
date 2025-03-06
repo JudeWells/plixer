@@ -11,6 +11,8 @@ from lightning.pytorch.callbacks import LearningRateMonitor
 from lightning.pytorch.loggers import Logger
 from omegaconf import DictConfig
 
+from src.utils import rich_utils
+
 # Set multiprocessing start method to 'spawn' to avoid CUDA issues
 # This must be done at the beginning of the program
 if __name__ == "__main__":
@@ -73,8 +75,19 @@ def train(cfg: DictConfig) -> Tuple[Dict[str, Any], Dict[str, Any]]:
 
     if cfg.get("train"):
         log.info("Starting training!")
-        trainer.fit(model=model, datamodule=datamodule, ckpt_path=cfg.get("ckpt_path"))
-
+        try:
+            trainer.fit(model=model, datamodule=datamodule, ckpt_path=cfg.get("ckpt_path"))
+        except Exception as e:
+            log.info(f"Error during training: {e}")
+            save_dir = cfg.callbacks.model_checkpoint.dirpath
+            os.makedirs(save_dir, exist_ok=True)
+            ckpt_save_path = os.path.join(
+                save_dir,
+                "interrupted.ckpt"
+            )
+            trainer.save_checkpoint(ckpt_save_path)
+            log.info(f"Saved checkpoint to {ckpt_save_path}")
+            raise e
     train_metrics = trainer.callback_metrics
 
     if cfg.get("test"):
@@ -94,7 +107,7 @@ def train(cfg: DictConfig) -> Tuple[Dict[str, Any], Dict[str, Any]]:
 
 @hydra.main(version_base="1.3", config_path="../configs", config_name="train.yaml")
 def main(cfg: DictConfig) -> Optional[float]:
-    # extras(cfg)
+    rich_utils.print_config_tree(cfg, resolve=True, save_to_file=True)
     metric_dict, _ = train(cfg)
     metric_value = get_metric_value(
         metric_dict=metric_dict, metric_name=cfg.get("optimized_metric")
