@@ -232,6 +232,7 @@ class RDkitMolecularComplex(MolecularComplex):
             def __init__(self, parent):
                 self.coords = parent.coords
                 self.element_symbols = parent.element_symbols
+                self.vdw_radii = parent.vdw_radii
         
         self.ligand_data = DummyData(self)
         self.protein_data = DummyData(self)

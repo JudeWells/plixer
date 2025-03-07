@@ -26,6 +26,7 @@ from src.data.common.voxelization.molecule_utils import (
     voxelize_complex
 )
 
+import json
 
 class ComplexDataset(Dataset):
     """
@@ -233,20 +234,36 @@ class PlinderParquetDataset(Dataset):
     """
     Dataset for protein-ligand complexes from Plinder parquet files.
     Loads protein-ligand data from parquet files and voxelizes them on the fly.
+    Each item represents a cluster, and a random sample from that cluster is returned.
     """
     def __init__(
         self,
         config: Poc2MolDataConfig,
         data_path: str,
+        indices_dir: str = None,
         translation: float = None,
         rotate: bool = None,
-        max_samples_per_file: int = None,
         cache_size: int = 100,
     ):
         self.config = config
-        self.parquet_files = glob.glob(os.path.join(data_path, '*.parquet'))
-        if len(self.parquet_files) == 0:
-            raise ValueError(f"No parquet files found in {data_path}")
+        self.data_path = data_path
+        
+        # Set indices directory if not provided
+        if indices_dir is None:
+            indices_dir = os.path.join(data_path, 'indices')
+        
+        # Load indices
+        with open(os.path.join(indices_dir, 'cluster_index.json'), 'r') as f:
+            self.cluster_index = json.load(f)
+        
+        with open(os.path.join(indices_dir, 'file_mapping.json'), 'r') as f:
+            file_mapping = json.load(f)
+            # Convert to full paths
+            self.file_mapping = {int(k): os.path.join(data_path, v) for k, v in file_mapping.items()}
+        
+        # Get list of cluster IDs
+        self.cluster_ids = sorted(list(self.cluster_index.keys()))
+        
         # Override config values if provided
         self.random_translation = translation if translation is not None else config.random_translation
         self.random_rotation = rotate if rotate is not None else config.random_rotation
@@ -258,32 +275,15 @@ class PlinderParquetDataset(Dataset):
         # Set up maximum atom distance
         self.max_atom_dist = config.max_atom_dist
         
-        # Load metadata from parquet files
-        self.samples = []
-        self.file_indices = []
-        
-        for file_idx, parquet_file in enumerate(self.parquet_files):
-            df = pd.read_parquet(parquet_file)
-            if max_samples_per_file:
-                df = df.sample(min(max_samples_per_file, len(df)))
-            
-            for idx, row in df.iterrows():
-                self.samples.append({
-                    'system_id': row['system_id'],
-                    'smiles': row['smiles'],
-                    'weight': row.get('weight', 1.0),
-                    'cluster': row.get('cluster', 0),
-                })
-                self.file_indices.append(file_idx)
-        
         # Set up LRU cache for parquet dataframes
         self.cache_size = cache_size
         self.df_cache = {}
         self.cache_order = []
         
         # Set up parser for molecular data
-        
         self.parser = MolecularParserWrapper()
+        self.fail_counter = 0
+        self.fail_threshold = 10
 
     def _get_dataframe(self, file_idx):
         """Get dataframe from cache or load it."""
@@ -294,7 +294,7 @@ class PlinderParquetDataset(Dataset):
             return self.df_cache[file_idx]
         
         # Load the dataframe
-        df = pd.read_parquet(self.parquet_files[file_idx])
+        df = pd.read_parquet(self.file_mapping[file_idx])
         # Add to cache
         self.df_cache[file_idx] = df
         self.cache_order.append(file_idx)
@@ -311,18 +311,27 @@ class PlinderParquetDataset(Dataset):
         return pickle.loads(base64.b64decode(serialized_data))
 
     def __len__(self):
-        return len(self.samples)
+        return len(self.cluster_ids)
 
     def __getitem__(self, idx):
-        """Get a protein-ligand complex and voxelize it."""
-        sample = self.samples[idx]
-        file_idx = self.file_indices[idx]
+        """Get a random sample from the specified cluster."""
+        # Get the cluster ID
+        cluster_id = self.cluster_ids[idx]
+        
+        # Get samples for this cluster
+        cluster_samples = self.cluster_index[cluster_id]
+        
+        # Select a random sample from this cluster
+        sample_info = np.random.choice(cluster_samples)
+        
+        file_idx = sample_info['file_idx']
+        row_idx = sample_info['row_idx']
         
         # Get the dataframe
         df = self._get_dataframe(file_idx)
         
-        # Find the row with the matching system_id and smiles
-        row = df[(df['system_id'] == sample['system_id']) & (df['smiles'] == sample['smiles'])].iloc[0]
+        # Get the specific row using iloc
+        row = df.iloc[row_idx]
         
         try:
             # Check if preprocessed data is available
@@ -375,14 +384,14 @@ class PlinderParquetDataset(Dataset):
                     protein_voxel = None
                     ligand_voxel = voxel
                 
+                self.fail_counter = 0
                 # Return the voxelized complex
                 return {
                     'ligand': ligand_voxel,
                     'protein': protein_voxel,
-                    'name': sample['system_id'],
-                    'smiles': sample['smiles'],
-                    'weight': sample.get('weight', 1.0),
-                    'cluster': sample.get('cluster', 0)
+                    'name': row['system_id'],
+                    'smiles': row['smiles'],
+                    'cluster': cluster_id
                 }
             
             else:
@@ -430,16 +439,19 @@ class PlinderParquetDataset(Dataset):
                     protein_voxel, ligand_voxel, _ = voxelize_complex(protein_path, ligand_path, temp_config)
                     
                     # Return the voxelized complex
+                    self.fail_counter = 0
                     return {
                         'ligand': ligand_voxel,
                         'protein': protein_voxel,
-                        'name': sample['system_id'],
-                        'smiles': sample['smiles'],
-                        'weight': sample.get('weight', 1.0),
-                        'cluster': sample.get('cluster', 0)
+                        'name': row['system_id'],
+                        'smiles': row['smiles'],
+                        'cluster': cluster_id
                     }
                     
         except Exception as e:
-            print(f"Error processing sample {sample['system_id']}: {e}")
+            print(f"Error processing sample {row['system_id']} from cluster {cluster_id}: {e}")
             # Return a random sample instead
+            self.fail_counter += 1
+            if self.fail_counter > self.fail_threshold:
+                raise e
             return self.__getitem__(np.random.randint(0, len(self))) 

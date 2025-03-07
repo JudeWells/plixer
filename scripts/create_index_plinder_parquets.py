@@ -50,11 +50,9 @@ def create_indices(input_dir, output_dir):
             chunk_df = pd.read_parquet(file_path)
             
             # Process each row
-            for idx, row in chunk_df.iterrows():
+            for row_idx, row in chunk_df.iterrows():
                 sample = {
                     'system_id': row['system_id'],
-                    'smiles': row['smiles'],
-                    'weight': float(row.get('weight', 1.0)),
                     'cluster': row.get('cluster', '0'),  # Keep cluster as string
                 }
                 
@@ -63,11 +61,9 @@ def create_indices(input_dir, output_dir):
                 
                 # Add to cluster-based indices
                 cluster_samples[sample['cluster']].append({
-                    'sample_idx': len(all_samples) - 1,
                     'file_idx': file_idx,
                     'system_id': sample['system_id'],
-                    'smiles': sample['smiles'],
-                    'weight': sample['weight']
+                    'row_idx': int(row_idx)  # Add row index
                 })
         except Exception as e:
             print(f"Error processing {file_path}: {e}")
@@ -79,21 +75,20 @@ def create_indices(input_dir, output_dir):
     }
     
     with open(os.path.join(output_dir, 'global_index.json'), 'w') as f:
-        json.dump(global_index, f)
+        json.dump(global_index, f, indent=2)
     
     # Save cluster-based indices
     cluster_index = {str(cluster_id): samples for cluster_id, samples in cluster_samples.items()}
     
     with open(os.path.join(output_dir, 'cluster_index.json'), 'w') as f:
-        json.dump(cluster_index, f)
+        json.dump(cluster_index, f, indent=2)
     
-    # Save file mapping
     file_mapping = {
-        i: file_path for i, file_path in enumerate(parquet_files)
+        i: os.path.basename(file_path) for i, file_path in enumerate(parquet_files)
     }
     
     with open(os.path.join(output_dir, 'file_mapping.json'), 'w') as f:
-        json.dump(file_mapping, f)
+        json.dump(file_mapping, f, indent=2)
     
     # Generate summary
     summary = {

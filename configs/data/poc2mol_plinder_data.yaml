@@ -4,7 +4,8 @@ val_pdb_dir: ../validation_PDBbind
 num_workers: 0
 train_dataset:
   _target_: src.data.poc2mol.datasets.PlinderParquetDataset
-  data_path: "/mnt/disk2/plinder/2024-06/v2/processed_parquet_sample"
+  indices_dir: "/mnt/disk2/plinder/2024-06/v2/processed_parquet/indices"
+  data_path: "/mnt/disk2/plinder/2024-06/v2/processed_parquet"
   config: ${data.config}
 val_dataset:
   _target_: src.data.poc2mol.datasets.PlinderParquetDataset

@@ -11,6 +11,7 @@ import numpy as np
 from pathlib import Path
 import hydra
 from omegaconf import OmegaConf
+import matplotlib.colors as mcolors
 
 from src.models.vox2smiles import VoxToSmilesModel
 from src.data.common.voxelization.molecule_utils import voxelize_molecule
@@ -160,7 +161,7 @@ def create_voxel_config(data_config_path):
             8: ['Br'],
             9: ['C', 'H', 'O', 'N', 'S', 'Cl', 'F', 'I', 'Br']
         },
-        'max_atom_dist': 3.0,
+        'max_atom_dist': 32.0,
         'dtype': torch.float32,
         'include_hydrogens': False,
         'batch_size': 32,
@@ -337,6 +338,69 @@ def visualize_molecules(smiles_list, mol_path, output_dir):
     return input_img_path, valid_mols, valid_smiles
 
 
+def visualize_voxel(voxel, output_dir, identifier='voxelized_molecule'):
+    """Visualize the voxelized molecule and save it to the output directory.
+    
+    Args:
+        voxel: The voxelized molecule tensor
+        output_dir: Directory to save the visualization
+        identifier: Base name for the saved files
+    """
+    # Create output directory if it doesn't exist
+    os.makedirs(output_dir, exist_ok=True)
+    
+    # Convert to numpy if it's a tensor
+    if not isinstance(voxel, np.ndarray):
+        voxel = voxel.detach().cpu().numpy()
+    
+    # Threshold the voxel grid
+    voxel = (voxel > 0.5).astype(int)
+    
+    # Define colors for each atom type
+    colors = np.zeros((voxel.shape[0], 4))
+    colors[0] = mcolors.to_rgba('green')    # carbon
+    colors[1] = mcolors.to_rgba('white')    # hydrogen
+    colors[2] = mcolors.to_rgba('red')      # oxygen
+    colors[3] = mcolors.to_rgba('blue')     # nitrogen
+    colors[4] = mcolors.to_rgba('yellow')   # sulfur
+    colors[5] = mcolors.to_rgba('magenta')  # chlorine
+    colors[6] = mcolors.to_rgba('magenta')  # fluorine
+    colors[7] = mcolors.to_rgba('magenta')  # iodine
+    colors[8] = mcolors.to_rgba('magenta')  # bromine
+    colors[9] = mcolors.to_rgba('cyan')     # other
+    
+    # Set transparency for all colors
+    colors[:, 3] = 0.2
+    
+    # Define viewing angles
+    angles = [(45, 45), (15, 90), (0, 30), (45, -45)]
+    
+    # Create figure
+    fig = plt.figure(figsize=(6, 6))
+    ax = fig.add_subplot(111, projection='3d')
+    
+    # Plot each channel with its corresponding color
+    for channel in range(voxel.shape[0]):
+        ax.voxels(voxel[channel], facecolors=colors[channel], edgecolors=colors[channel])
+    
+    # Save from different angles
+    for i, angle in enumerate(angles):
+        ax.view_init(elev=angle[0], azim=angle[1])
+        ax.axis('off')
+        ax.grid(False)
+        ax.set_xticks([])
+        ax.set_yticks([])
+        ax.set_zticks([])
+        
+        save_path = os.path.join(output_dir, f"{identifier}_angle_{i+1}.png")
+        plt.savefig(save_path)
+        print(f"Saved voxel visualization to {save_path}")
+    
+    plt.close(fig)
+    
+    return os.path.join(output_dir, f"{identifier}_angle_1.png")
+
+
 def main(args):
     # Set device
     device = torch.device("cuda" if torch.cuda.is_available() and not args.cpu else "cpu")
@@ -353,6 +417,10 @@ def main(args):
     # Voxelize input molecule
     voxel, input_mol = voxelize_input_molecule(args.molecule, voxel_config)
     print(f"Molecule voxelized, shape: {voxel.shape}")
+    
+    # Visualize the voxelized molecule
+    voxel_img_path = visualize_voxel(voxel, args.output_dir)
+    print(f"Voxelized molecule visualization saved to {voxel_img_path}")
     
     # Sample from model
     print(f"Generating {args.num_samples} samples...")
@@ -416,12 +484,12 @@ def main(args):
         # Sort by log likelihood and print top/bottom 5
         sorted_df = results_df.sort_values('per_token_log_likelihood', ascending=False)
         print("\nTop 5 most likely SMILES:")
-        for i, row in sorted_df.head(5).iterrows():
-            print(f"{row['smiles']}: {row['per_token_log_likelihood']:.4f}")
+        for i, row in sorted_df.head(10).iterrows():
+            print(f"{row['smiles']}: {row['per_token_log_likelihood']:.4f}, hit: {row['hit']}")
         
         print("\nBottom 5 least likely SMILES:")
-        for i, row in sorted_df.tail(5).iterrows():
-            print(f"{row['smiles']}: {row['per_token_log_likelihood']:.4f}")
+        for i, row in sorted_df.tail(10).iterrows():
+            print(f"{row['smiles']}: {row['per_token_log_likelihood']:.4f}, hit: {row['hit']}")
 
 
 if __name__ == "__main__":
@@ -442,7 +510,7 @@ if __name__ == "__main__":
                         default="vox2smiles_evaluation2",
                         help="Directory to save output files")
     parser.add_argument("--num-samples", type=int, 
-                        default=2,
+                        default=10,
                         help="Number of SMILES strings to generate")
     parser.add_argument("--temperature", type=float, 
                         default=1.0,
