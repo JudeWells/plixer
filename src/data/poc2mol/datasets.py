@@ -338,6 +338,10 @@ class PlinderParquetDataset(Dataset):
         try:
             # Check if we have the new format columns
             if 'protein_coords' in row and 'ligand_coords' in row:
+                print("labeled protein coords shape", row['protein_coords_shape'])
+                print("actual protein coords shape", row['protein_coords'].shape)
+                print("labeled ligand coords shape", row['ligand_coords_shape'])
+                print("actual ligand coords shape", row['ligand_coords'].shape)
                 protein_coords = torch.tensor(row['protein_coords'], dtype=torch.float16).reshape(
                     list(row['protein_coords_shape'])
                     )
