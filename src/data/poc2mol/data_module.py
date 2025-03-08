@@ -72,7 +72,7 @@ class ComplexDataModule(LightningDataModule):
             self.train_dataset,
             batch_size=self.config.batch_size,
             shuffle=True,
-            num_workers=0,
+            num_workers=self.num_workers,
             pin_memory=False,
             persistent_workers=True if self.num_workers > 0 else False,
         )
@@ -81,9 +81,9 @@ class ComplexDataModule(LightningDataModule):
         """Get the validation data loader."""
         return DataLoader(
             self.val_dataset,
-            batch_size=min(4, self.config.batch_size),  # Smaller batch size for validation
+            batch_size=min(4, self.config.batch_size),
             shuffle=False,
-            num_workers=0,
+            num_workers=self.num_workers,
             pin_memory=False,
             persistent_workers=True if self.num_workers > 0 else False,
         )
@@ -92,9 +92,9 @@ class ComplexDataModule(LightningDataModule):
         """Get the test data loader."""
         return DataLoader(
             self.test_dataset,
-            batch_size=min(4, self.config.batch_size),  # Smaller batch size for testing
+            batch_size=min(4, self.config.batch_size),
             shuffle=False,
-            num_workers=0,
+            num_workers=self.num_workers,
             pin_memory=False,
             persistent_workers=True if self.num_workers > 0 else False,
         ) 

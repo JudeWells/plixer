@@ -3,6 +3,7 @@ import glob
 import torch
 import numpy as np
 import pandas as pd
+import time
 from torch.utils.data import Dataset
 import tempfile
 import os
@@ -240,17 +241,14 @@ class PlinderParquetDataset(Dataset):
         self,
         config: Poc2MolDataConfig,
         data_path: str,
-        indices_dir: str = None,
         translation: float = None,
         rotate: bool = None,
-        cache_size: int = 100,
+        cache_size: int = 10,
     ):
         self.config = config
         self.data_path = data_path
         
-        # Set indices directory if not provided
-        if indices_dir is None:
-            indices_dir = os.path.join(data_path, 'indices')
+        indices_dir = os.path.join(data_path, 'indices')
         
         # Load indices
         with open(os.path.join(indices_dir, 'cluster_index.json'), 'r') as f:
@@ -306,6 +304,8 @@ class PlinderParquetDataset(Dataset):
         
         return df
     
+
+
     def _deserialize_molecular_data(self, serialized_data):
         """Deserialize MolecularData object from a base64 encoded string."""
         return pickle.loads(base64.b64decode(serialized_data))
@@ -327,11 +327,13 @@ class PlinderParquetDataset(Dataset):
         file_idx = sample_info['file_idx']
         row_idx = sample_info['row_idx']
         
-        # Get the dataframe
+        # Option 1: Get the full dataframe (original method)
+        start_time = time.time()
         df = self._get_dataframe(file_idx)
-        
-        # Get the specific row using iloc
         row = df.iloc[row_idx]
+        end_time = time.time()
+        load_time = end_time - start_time
+
         
         try:
             # Check if preprocessed data is available
@@ -391,7 +393,8 @@ class PlinderParquetDataset(Dataset):
                     'protein': protein_voxel,
                     'name': row['system_id'],
                     'smiles': row['smiles'],
-                    'cluster': cluster_id
+                    'cluster': cluster_id,
+                    'load_time': load_time
                 }
             
             else:
@@ -445,7 +448,8 @@ class PlinderParquetDataset(Dataset):
                         'protein': protein_voxel,
                         'name': row['system_id'],
                         'smiles': row['smiles'],
-                        'cluster': cluster_id
+                        'cluster': cluster_id,
+                        'load_time': load_time
                     }
                     
         except Exception as e:

@@ -4,12 +4,11 @@ val_pdb_dir: ../validation_PDBbind
 num_workers: 0
 train_dataset:
   _target_: src.data.poc2mol.datasets.PlinderParquetDataset
-  indices_dir: "/mnt/disk2/plinder/2024-06/v2/processed_parquet/indices"
-  data_path: "/mnt/disk2/plinder/2024-06/v2/processed_parquet"
+  data_path: "/mnt/disk2/plinder/2024-06/v2/processed_parquet/train"
   config: ${data.config}
 val_dataset:
   _target_: src.data.poc2mol.datasets.PlinderParquetDataset
-  data_path: "/mnt/disk2/plinder/2024-06/v2/processed_parquet_val"
+  data_path: "/mnt/disk2/plinder/2024-06/v2/processed_parquet/val"
   config: ${data.config}
 config:
   _target_: src.data.common.voxelization.config.Poc2MolDataConfig 
