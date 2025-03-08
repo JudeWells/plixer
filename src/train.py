@@ -10,6 +10,7 @@ from lightning import Callback, LightningDataModule, LightningModule, Trainer
 from lightning.pytorch.callbacks import LearningRateMonitor
 from lightning.pytorch.loggers import Logger
 from omegaconf import DictConfig
+import math
 
 from src.utils import rich_utils
 
@@ -54,6 +55,17 @@ def train(cfg: DictConfig) -> Tuple[Dict[str, Any], Dict[str, Any]]:
 
     lr_monitor = LearningRateMonitor(logging_interval='step')
     callbacks.append(lr_monitor)
+
+    batch_size = cfg.data.config.batch_size
+    target_samples_per_batch = cfg.data.config.get("target_samples_per_batch", batch_size)
+
+    # Calculate accumulate_grad_batches
+    accumulate_grad_batches = max(1, math.ceil(target_samples_per_batch / batch_size))
+
+    # Set accumulate_grad_batches in trainer config
+    cfg.trainer.accumulate_grad_batches = accumulate_grad_batches
+
+    log.info(f"Calculated accumulate_grad_batches: {accumulate_grad_batches}")
 
     log.info(f"Instantiating trainer <{cfg.trainer._target_}>")
     trainer: Trainer = hydra.utils.instantiate(

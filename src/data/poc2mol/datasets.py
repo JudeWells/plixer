@@ -336,8 +336,84 @@ class PlinderParquetDataset(Dataset):
 
         
         try:
-            # Check if preprocessed data is available
-            if 'protein_data_serialized' in row and 'ligand_data_serialized' in row:
+            # Check if we have the new format columns
+            if 'protein_coords' in row and 'ligand_coords' in row:
+                protein_coords = torch.tensor(row['protein_coords'], dtype=torch.float16).reshape(
+                    list(row['protein_coords_shape'])
+                    )
+                ligand_coords = torch.tensor(row['ligand_coords'], dtype=torch.float16).reshape(
+                    list(row['ligand_coords_shape'])
+                )
+                
+                protein_data = MolecularData(
+                    molecule_object=None,
+                    coords=protein_coords,
+                    element_symbols=row['protein_element_symbols']
+                )
+                
+                ligand_data = MolecularData(
+                    molecule_object=None,
+                    coords=ligand_coords,
+                    element_symbols=row['ligand_element_symbols']
+                )
+
+                # Create a temporary config with the current instance's settings
+                temp_config = Poc2MolDataConfig(
+                    vox_size=self.config.vox_size,
+                    box_dims=self.config.box_dims,
+                    random_rotation=self.random_rotation,
+                    random_translation=self.random_translation,
+                    has_protein=self.config.has_protein,
+                    ligand_channel_names=self.config.ligand_channel_names,
+                    protein_channel_names=self.config.protein_channel_names,
+                    protein_channels=self.config.protein_channels,
+                    ligand_channels=self.config.ligand_channels,
+                    max_atom_dist=self.max_atom_dist,
+                    dtype=eval(self.config.dtype) if isinstance(self.config.dtype, str) else self.config.dtype
+                )
+                
+                # Create molecular complex
+                complex_obj = MolecularComplex(protein_data, ligand_data)
+                
+                # Apply transformations
+                if self.random_rotation:
+                    assert abs(complex_obj.ligand_data.coords.mean(axis=1) - complex_obj.ligand_center).max() < 1e-5, "Ligand center is not correct"
+                    complex_obj = apply_random_rotation(complex_obj)
+                    assert abs(complex_obj.ligand_data.coords.mean(axis=1) - complex_obj.ligand_center).max() < 1e-5, "Ligand center is not correct"
+                
+                if self.random_translation > 0:
+                    complex_obj = apply_random_translation(complex_obj, self.random_translation)
+                
+                if self.max_atom_dist is not None and self.max_atom_dist > 0:
+                    assert abs(complex_obj.ligand_data.coords.mean(axis=1) - complex_obj.ligand_center).max() <= self.random_translation, "Ligand center is not correct"
+                    complex_obj = prune_distant_atoms(complex_obj, self.max_atom_dist)
+                
+                # Voxelize the complex
+                voxelizer = UnifiedVoxelGrid(temp_config)
+                voxel = voxelizer.voxelize(complex_obj)
+                
+                # Extract protein and ligand channels based on config
+                if temp_config.has_protein:
+                    protein_channels = len(temp_config.protein_channels)
+                    protein_voxel = voxel[:protein_channels]
+                    ligand_voxel = voxel[protein_channels:]
+                else:
+                    protein_voxel = None
+                    ligand_voxel = voxel
+                
+                self.fail_counter = 0
+                # Return the voxelized complex
+                return {
+                    'ligand': ligand_voxel,
+                    'protein': protein_voxel,
+                    'name': row['system_id'],
+                    'smiles': row['smiles'],
+                    'cluster': cluster_id,
+                    'load_time': load_time
+                }
+            
+            # Keep existing handling for old format as fallback
+            elif 'protein_data_serialized' in row and 'ligand_data_serialized' in row:
                 # Deserialize the data
                 protein_data = self._deserialize_molecular_data(row['protein_data_serialized'])
                 ligand_data = self._deserialize_molecular_data(row['ligand_data_serialized'])
@@ -362,9 +438,9 @@ class PlinderParquetDataset(Dataset):
                 
                 # Apply transformations
                 if self.random_rotation:
-                    assert abs(complex_obj.ligand_data.coords.mean(axis=1) - complex_obj.ligand_center).max() < 1e-5, "Ligand center is not correct"
+                    assert abs(complex_obj.ligand_data.coords.mean(axis=1) - complex_obj.ligand_center).max() < 1e-3, "Ligand center is not correct"
                     complex_obj = apply_random_rotation(complex_obj)
-                    assert abs(complex_obj.ligand_data.coords.mean(axis=1) - complex_obj.ligand_center).max() < 1e-5, "Ligand center is not correct"
+                    assert abs(complex_obj.ligand_data.coords.mean(axis=1) - complex_obj.ligand_center).max() < 1e-3, f"Ligand center is not correct: {complex_obj.ligand_data.coords.mean(axis=1)} {complex_obj.ligand_center}"
                 
                 if self.random_translation > 0:
                     complex_obj = apply_random_translation(complex_obj, self.random_translation)

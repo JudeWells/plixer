@@ -4,16 +4,21 @@ val_pdb_dir: ../validation_PDBbind
 num_workers: 0
 train_dataset:
   _target_: src.data.poc2mol.datasets.PlinderParquetDataset
-  data_path: "/mnt/disk2/plinder/2024-06/v2/processed_parquet/train"
+  data_path: "../plinder/train_arrays"
   config: ${data.config}
 val_dataset:
   _target_: src.data.poc2mol.datasets.PlinderParquetDataset
-  data_path: "/mnt/disk2/plinder/2024-06/v2/processed_parquet/val"
+  data_path: "../plinder/val_arrays"
+  config: ${data.config}
+test_dataset:
+  _target_: src.data.poc2mol.datasets.PlinderParquetDataset
+  data_path: "../plinder/test_arrays"
   config: ${data.config}
 config:
   _target_: src.data.common.voxelization.config.Poc2MolDataConfig 
   remove_hydrogens: true
-  batch_size: 32 
+  batch_size: 32
+  target_samples_per_batch: 128
   ligand_channel_names:
     - carbon
     - oxygen

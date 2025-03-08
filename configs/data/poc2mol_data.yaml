@@ -3,12 +3,12 @@ pdb_dir: ../PDBbind_v2020_refined-set
 val_pdb_dir: ../validation_PDBbind
 num_workers: 0
 config:
-  _target_: src.data.common.voxelization.config.Poc2MolDataConfig ##
-  batch_size: 32 ##
+  _target_: src.data.common.voxelization.config.Poc2MolDataConfig
+  batch_size: 32
   
-  fnames: null ##
-  protein_channel_indices: [0, 1, 2, 3, 4, 5] ##
-  ligand_channel_indices: [5, 6, 7, 8, 9, 10, 11, 12, 13, 14] ##
+  fnames: null
+  protein_channel_indices: [0, 1, 2, 3, 4, 5] 
+  ligand_channel_indices: [5, 6, 7, 8, 9, 10, 11, 12, 13, 14] 
   vox_size: 0.75
   box_dims: [ 24.0, 24.0, 24.0 ]
   random_rotation: true

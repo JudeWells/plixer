@@ -68,6 +68,7 @@ class Poc2MolDataConfig(VoxelizationConfig):
     Extends the base VoxelizationConfig with Poc2Mol-specific parameters.
     """
     batch_size: int = 32
+    target_samples_per_batch: int = 128
     has_protein: bool = True
     # Indices of channels to use for ligand and protein
     # These are indices into the voxelized output, not the channel mappings above

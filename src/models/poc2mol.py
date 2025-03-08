@@ -104,14 +104,15 @@ class Poc2Mol(LightningModule):
     def validation_step(self, batch, batch_idx):
         outputs, loss = self(batch["protein"], labels=batch["ligand"])
         save_dir = f"{self.img_save_dir}/val"
-        lig, pred, names = batch["ligand"][:4], outputs[:4], batch["name"][:4]
-        visualise_batch(
-            lig,
-            pred,
-            names,
-            save_dir=save_dir,
-            batch=str(batch_idx)
-        )
+        if batch_idx in [0, 50, 100]:
+            lig, pred, names = batch["ligand"][:4], outputs[:4], batch["name"][:4]
+            visualise_batch(
+                lig,
+                pred,
+                names,
+                save_dir=save_dir,
+                batch=str(batch_idx)
+            )
 
         self.log("val/loss", loss, on_step=False, on_epoch=True, prog_bar=True)
         return loss
