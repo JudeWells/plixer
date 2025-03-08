@@ -83,9 +83,9 @@ class ComplexDataModule(LightningDataModule):
             self.val_dataset,
             batch_size=min(4, self.config.batch_size),
             shuffle=False,
-            num_workers=self.num_workers,
+            num_workers=0,
             pin_memory=False,
-            persistent_workers=True if self.num_workers > 0 else False,
+            persistent_workers= False, #True if self.num_workers > 0 else False,
         )
 
     def test_dataloader(self):
@@ -94,7 +94,7 @@ class ComplexDataModule(LightningDataModule):
             self.test_dataset,
             batch_size=min(4, self.config.batch_size),
             shuffle=False,
-            num_workers=self.num_workers,
+            num_workers=0,
             pin_memory=False,
-            persistent_workers=True if self.num_workers > 0 else False,
+            persistent_workers=False,
         ) 
