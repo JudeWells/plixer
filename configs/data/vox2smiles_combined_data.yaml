@@ -1,6 +1,6 @@
 # data config for training vox2smiles model on zinc data
 # and outputs of poc2mol model
-_target_: src.data.vox2smiles.data_module.VoxMilesDataModule
+_target_: src.data.vox2smiles.data_module.Vox2SmilesDataModule
 defaults:
   - /model@train_dataset.poc2mol_output_dataset.poc2mol_model: poc2mol
   - _self_
@@ -14,8 +14,8 @@ config:
 train_dataset:
   _target_: src.data.vox2smiles.datasets.CombinedDataset
   ratio: 0.3 # probability of poc2mol
-  voxmiles_dataset:
-    _target_: src.data.vox2smiles.datasets.ParquetVoxMilesDataset
+  vox2smiles_dataset:
+    _target_: src.data.vox2smiles.datasets.ParquetVox2SmilesDataset
     data_path: /mnt/disk2/zinc20_parquet
     random_rotation: true
     random_translation: 6.0

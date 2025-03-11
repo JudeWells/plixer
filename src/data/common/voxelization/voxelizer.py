@@ -5,9 +5,7 @@ from typing import List, Dict, Optional, Union, Any
 from docktgrid.grid import Grid3D
 from docktgrid.view import View
 from docktgrid.molecule import MolecularComplex
-# Import but don't use directly - we'll override with our config
-from docktgrid.config import DEVICE
-import docktgrid.config as docktgrid_config
+from docktgrid.config import DEVICE, DTYPE
 from docktgrid.periodictable import ptable
 
 from src.data.common.voxelization.config import VoxelizationConfig
@@ -23,9 +21,6 @@ class UnifiedView(View):
         config: VoxelizationConfig,
     ):
         super().__init__()
-        # Override docktgrid's DTYPE with our configuration
-        docktgrid_config.DTYPE = config.dtype
-        
         self.channels = config.ligand_channels
         self.ch_names = config.ligand_channel_names
         self.has_protein = config.has_protein
@@ -117,9 +112,6 @@ class UnifiedVoxelGrid:
     ):
         """Initialize the unified voxel grid."""
         self.config = config
-        # Override docktgrid's DTYPE with our configuration
-        docktgrid_config.DTYPE = config.dtype
-        
         self.occupancy_func = self._voxelize_vdw  # Currently only supporting vdw occupancy
         self.grid = Grid3D(config.vox_size, config.box_dims)
         self.view = UnifiedView(config)
@@ -141,16 +133,32 @@ class UnifiedVoxelGrid:
         return self.view(molecule)
 
     def voxelize(self, molecule, out=None, channels=None, requires_grad=False):
-        """Voxelize a molecule or molecular complex."""
+        """Voxelize molecule and return voxel grid."""
         if out is None:
-            # Create output tensor with the correct data type from config
-            out = torch.zeros(self.shape, dtype=self.config.dtype, device=DEVICE, requires_grad=requires_grad)
-        
+            out = torch.zeros(
+                self.shape, dtype=self.config.dtype, device=DEVICE, requires_grad=requires_grad
+            )
+        else:
+            if out.shape != self.shape:
+                raise ValueError(
+                    f"`out` shape must be == {self.shape}, currently it is {out.shape}"
+                )
+            out = torch.as_tensor(out, self.config.dtype, DEVICE, requires_grad=requires_grad)
+
         if channels is None:
             channels = self.get_channels_mask(molecule)
-            
-        self.occupancy_func(molecule, out, channels)
-        return out
+        else:
+            cshape = (self.num_channels, molecule.n_atoms)
+            if channels.shape != cshape:
+                raise ValueError(
+                    f"`channels` shape must be == {cshape}, currently it is {channels.shape}"
+                )
+            channels = torch.as_tensor(channels, dtype=self.config.dtype, device=DEVICE)
+
+        # Create voxel based on occupancy option
+        self._voxelize_vdw(molecule, out, channels)
+
+        return out.view(self.shape)
 
     @torch.no_grad()
     def _voxelize_vdw(self, molecule, out, channels) -> None:

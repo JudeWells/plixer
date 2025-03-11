@@ -179,7 +179,7 @@ def create_voxel_config(data_config_path):
 
 
 def voxelize_input_molecule(mol_path, voxel_config):
-    """Voxelize a molecule according to the pipeline in VoxMilesDataset."""
+    """Voxelize a molecule according to the pipeline in Vox2SmilesDataset."""
     # Load the molecule
     mol = load_molecule(mol_path)
     

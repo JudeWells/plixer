@@ -1,4 +1,4 @@
-_target_: src.data.vox2smiles.data_module.VoxMilesDataModule
+_target_: src.data.vox2smiles.data_module.Vox2SmilesDataModule
 data_path: "../geom/rdkit_folder/drugs"
 config:
   _target_: src.data.common.voxelization.config.Vox2SmilesDataConfig
