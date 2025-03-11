@@ -2,9 +2,11 @@ import os
 import multiprocessing
 from typing import Any, Dict, List, Optional, Tuple
 
+import rootutils
+rootutils.setup_root(__file__, indicator=".project-root", pythonpath=True)
+
 import hydra
 import lightning as L
-import rootutils
 import torch
 from lightning import Callback, LightningDataModule, LightningModule, Trainer
 from lightning.pytorch.callbacks import LearningRateMonitor
@@ -18,8 +20,6 @@ from src.utils import rich_utils
 # This must be done at the beginning of the program
 if __name__ == "__main__":
     multiprocessing.set_start_method('spawn', force=True)
-
-rootutils.setup_root(__file__, indicator=".project-root", pythonpath=True)
 
 from src.utils import (
     RankedLogger,

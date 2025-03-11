@@ -28,15 +28,10 @@ class VoxMilesDataModule(LightningDataModule):
         self.val_split = val_split
         self.test_split = test_split
         
-        # Store provided datasets
         self.train_dataset_provided = train_dataset
         self.val_dataset_provided = val_dataset
         self.test_dataset_provided = test_dataset
-        
-        # Build the tokenizer
         self.tokenizer = build_smiles_tokenizer()
-        
-        # Create the collate function
         self.collate_fn = get_collate_function(self.tokenizer)
 
     def setup(self, stage: Optional[str] = None):
