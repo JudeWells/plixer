@@ -12,11 +12,12 @@ from pathlib import Path
 import hydra
 from omegaconf import OmegaConf
 import matplotlib.colors as mcolors
-
+from sklearn.metrics import roc_auc_score
 from src.models.vox2smiles import VoxToSmilesModel
 from src.data.common.voxelization.molecule_utils import voxelize_molecule
 from src.data.common.voxelization.config import Vox2SmilesDataConfig
 from src.data.common.tokenizers.smiles_tokenizer import build_smiles_tokenizer
+from scripts.benchmarks.cache3_tanimoto_similarity import get_metrics, print_metrics
 
 
 def load_model(checkpoint_path, config_path):
@@ -436,7 +437,11 @@ def main(args):
     print("\nGenerated SMILES:")
     for i, smiles in enumerate(smiles_list):
         print(f"{i+1}: {smiles}")
-    
+    # count unique smiles
+    unique_smiles = set(smiles_list)
+    print(f"Number of unique SMILES: {len(unique_smiles)} out of {len(smiles_list)}")
+    #select only unique smiles
+    smiles_list = list(unique_smiles)
     # Visualize molecules
     input_img_path, valid_mols, valid_smiles = visualize_molecules(
         smiles_list, 
@@ -470,26 +475,21 @@ def main(args):
         
         # Create results DataFrame
         results_df = pd.DataFrame(results)
+        # merge results_df with df on smiles column
+        results_df = pd.merge(df, results_df, on='smiles', how='left')
+        
+        # Calculate metrics for both log likelihood and per-token log likelihood
+        ll_metrics = get_metrics(results_df, 'log_likelihood')
+        per_token_ll_metrics = get_metrics(results_df, 'per_token_log_likelihood')
+        
+        # Print metrics
+        print_metrics(ll_metrics, score_name="log_likelihood")
+        print_metrics(per_token_ll_metrics, score_name="per_token_log_likelihood")
         
         # Save results
         output_path = os.path.join(args.output_dir, "log_likelihood_results.csv")
         results_df.to_csv(output_path, index=False)
         print(f"Log likelihood results saved to {output_path}")
-        
-        # Print summary statistics
-        print("\nLog Likelihood Summary:")
-        print(f"Mean log likelihood: {results_df['log_likelihood'].mean():.4f}")
-        print(f"Mean per-token log likelihood: {results_df['per_token_log_likelihood'].mean():.4f}")
-        
-        # Sort by log likelihood and print top/bottom 5
-        sorted_df = results_df.sort_values('per_token_log_likelihood', ascending=False)
-        print("\nTop 5 most likely SMILES:")
-        for i, row in sorted_df.head(10).iterrows():
-            print(f"{row['smiles']}: {row['per_token_log_likelihood']:.4f}, hit: {row['hit']}")
-        
-        print("\nBottom 5 least likely SMILES:")
-        for i, row in sorted_df.tail(10).iterrows():
-            print(f"{row['smiles']}: {row['per_token_log_likelihood']:.4f}, hit: {row['hit']}")
 
 
 if __name__ == "__main__":
@@ -528,5 +528,5 @@ if __name__ == "__main__":
                         help="Force using CPU even if GPU is available")
     
     args = parser.parse_args()
-    args.cpu = True
+    # args.cpu = True
     main(args)

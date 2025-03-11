@@ -6,3 +6,4 @@ logs/
 wandb/
 vox2smiles_evaluation*/
 qsub_logs/
+outputs/
