@@ -37,7 +37,7 @@ pip install -r requirements.txt
 
 ```
 Modify this file in your dock2grid install to use float16:
-venv/lib/python3.11/site-packages/docktgrid/config.py
+`venv/lib/python3.11/site-packages/docktgrid/config.py`
 ```python
 DTYPE = torch.float16
 ```
@@ -82,14 +82,6 @@ The Vox2Smiles model is a Vision Transformer (ViT) that takes ligand voxels as i
 ### Combined Model
 
 The combined Poc2Smiles model connects the Poc2Mol and Vox2Smiles models in an end-to-end fashion. It takes protein voxels as input, generates ligand voxels using Poc2Mol, and then generates SMILES strings using Vox2Smiles.
-
-## Data Pipeline
-
-1. **Protein-Ligand Complexes**: The input data consists of protein-ligand complexes in PDB and MOL2 formats.
-2. **Voxelization**: The proteins and ligands are voxelized using a unified voxelization module.
-3. **SMILES Tokenization**: The SMILES strings are tokenized using a pre-trained tokenizer.
-4. **Training**: The model is trained to generate SMILES strings from protein voxels.
-ity between generated molecules and reference molecules.
 
 ## License
 
