@@ -1,0 +1,54 @@
+# @package _global_
+defaults:
+  - _self_
+  - override /data: vox2smiles_zinc_data
+  - override /model: vox2smiles
+  - override /logger: wandb.yaml
+
+task_name: "vox2smilesZinc"
+tags: ["dev", "vox2smiles", "zinc"]
+train: True
+test: True
+optimized_metric: "val/loss"
+ckpt_path: null
+seed: 42
+
+logger:
+  wandb:
+    project: "voxelSmiles"
+    entity: "cath"
+    group: "vox2smilesZinc"
+    job_type: "train"
+    tags: ["dev"]
+    save_dir: "${paths.output_dir}"
+    offline: False
+    id: null # pass correct id to resume experiment!
+
+data:
+  _target_: src.data.vox2smiles.data_module.Vox2SmilesDataModule
+  config:
+    include_hydrogens: false
+    num_workers: 0 #consider moving outside of config
+  train_dataset:
+    _target_: src.data.vox2smiles.datasets.ParquetVox2SmilesDataset
+    data_path: example_data/zinc_example
+    random_rotation: true
+    random_translation: 6.0
+    config: ${data.config}
+  val_dataset:
+    _target_: src.data.vox2smiles.datasets.ParquetVox2SmilesDataset
+    data_path: example_data/zinc_example
+    random_rotation: true
+    random_translation: 6.0
+    config: ${data.config}
+  test_dataset:
+    _target_: src.data.vox2smiles.datasets.ParquetVox2SmilesDataset
+    data_path: example_data/zinc_example
+    random_rotation: true
+    random_translation: 6.0
+    config: ${data.config}
+model:
+  override_optimizer_on_load: false
+
+trainer:
+  val_check_interval: null

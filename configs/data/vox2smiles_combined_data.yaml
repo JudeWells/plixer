@@ -1,4 +1,5 @@
-_target_: src.data.vox2smiles.data_module.VoxMilesDataModule
+# data config for training vox2smiles model on zinc data and outputs of poc2mol model
+_target_: src.data.vox2smiles.data_module.Vox2SmilesDataModule
 defaults:
   - /model@train_dataset.poc2mol_output_dataset.poc2mol_model: poc2mol
   - _self_
@@ -11,9 +12,9 @@ config:
   has_protein: false
 train_dataset:
   _target_: src.data.vox2smiles.datasets.CombinedDataset
-  ratio: 0.5 # probability of poc2mol
-  voxmiles_dataset:
-    _target_: src.data.vox2smiles.datasets.ParquetVoxMilesDataset
+  ratio: 0.3 # probability of poc2mol
+  vox2smiles_dataset:
+    _target_: src.data.vox2smiles.datasets.ParquetVox2SmilesDataset
     data_path: /mnt/disk2/zinc20_parquet
     random_rotation: true
     random_translation: 6.0
@@ -30,8 +31,8 @@ train_dataset:
         _target_: src.data.common.voxelization.config.Poc2MolDataConfig
         batch_size: 1
         has_protein: true
-        protein_channel_indices: [0, 1, 2, 3, 4, 5]
-        ligand_channel_indices: [5, 6, 7, 8, 9, 10, 11, 12, 13, 14]
+        protein_channel_indices: [0, 1, 2, 3]
+        ligand_channel_indices: [4, 5, 6, 7, 8, 9, 10, 11, 12]
         vox_size: 0.75
         box_dims: [24.0, 24.0, 24.0]
         random_rotation: true

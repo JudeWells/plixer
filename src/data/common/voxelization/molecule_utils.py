@@ -6,7 +6,7 @@ import pandas as pd
 from rdkit import Chem
 from docktgrid.transforms import RandomRotation
 from docktgrid.molecule import MolecularComplex
-
+import pathlib
 from src.data.common.voxelization.voxelizer import RDkitMolecularComplex, UnifiedVoxelGrid
 from src.data.common.voxelization.config import VoxelizationConfig
 
@@ -34,11 +34,18 @@ def load_complex_from_files(protein_path, ligand_path, parser=None):
     
     return MolecularComplex(protein_path, ligand_path, molparser=parser)
 
+    
 
 def apply_random_rotation(molecular_complex):
     """Apply a random rotation to a molecular complex."""
     rotation = RandomRotation()
+    n_atoms_ligand = molecular_complex.ligand_data.coords.shape[1]
     rotation(molecular_complex.coords, molecular_complex.ligand_center)
+    molecular_complex.ligand_data.coords = molecular_complex.coords[:, -n_atoms_ligand:]
+    molecular_complex.protein_data.coords = molecular_complex.coords[:,:-n_atoms_ligand]
+    molecular_complex.ligand_center = torch.mean(
+        molecular_complex.ligand_data.coords, 1
+        ).to(molecular_complex.ligand_center.dtype)
     return molecular_complex
 
 
@@ -56,7 +63,7 @@ def apply_random_translation(molecular_complex, max_translation):
     return molecular_complex
 
 
-def prune_distant_atoms(complex_obj, max_atom_dist):
+def prune_distant_atoms(complex_obj, max_atom_dist, has_protein=True):
     """Remove atoms that are too far from the ligand center."""
     if max_atom_dist is None or max_atom_dist <= 0:
         return complex_obj
@@ -68,6 +75,7 @@ def prune_distant_atoms(complex_obj, max_atom_dist):
         complex_obj.coords.T - ligand_center, dim=1
     )
     mask = dists < max_atom_dist
+    assert mask.max(), "atoms were pruned to zero"
     complex_obj.coords = complex_obj.coords[:, mask]
     complex_obj.vdw_radii = complex_obj.vdw_radii[mask]
     complex_obj.element_symbols = complex_obj.element_symbols[mask]
@@ -78,6 +86,7 @@ def prune_distant_atoms(complex_obj, max_atom_dist):
         complex_obj.ligand_data.coords.T - ligand_center, dim=1
     )
     lig_mask = lig_dists < max_atom_dist
+    assert lig_mask.max(), "Ligand atoms were pruned to zero"
     complex_obj.ligand_data.coords = complex_obj.ligand_data.coords[:, lig_mask]
     
     # Handle element symbols differently based on type
@@ -89,7 +98,7 @@ def prune_distant_atoms(complex_obj, max_atom_dist):
     complex_obj.n_atoms_ligand = complex_obj.ligand_data.coords.shape[1]
 
     # If there are protein atoms, prune them too
-    if complex_obj.n_atoms_protein > 0:
+    if has_protein and complex_obj.n_atoms_protein > 0:
         prot_dists = torch.linalg.vector_norm(
             complex_obj.protein_data.coords.T - ligand_center, dim=1
         )
@@ -97,7 +106,8 @@ def prune_distant_atoms(complex_obj, max_atom_dist):
         complex_obj.protein_data.coords = complex_obj.protein_data.coords[:, prot_mask]
         complex_obj.protein_data.element_symbols = complex_obj.protein_data.element_symbols[prot_mask]
         complex_obj.n_atoms_protein = complex_obj.protein_data.coords.shape[1]
-
+        assert complex_obj.n_atoms_protein > 0, "Protein atoms were pruned to zero"
+    assert complex_obj.n_atoms_ligand > 0, "Ligand atoms were pruned to zero"
     return complex_obj
 
 
@@ -114,16 +124,22 @@ def prepare_rdkit_molecule(mol, config):
         molecular_complex = apply_random_translation(molecular_complex, config.random_translation)
     
     if config.max_atom_dist is not None and config.max_atom_dist > 0:
-        molecular_complex = prune_distant_atoms(molecular_complex, config.max_atom_dist)
+        molecular_complex = prune_distant_atoms(
+            molecular_complex, 
+            config.max_atom_dist,
+            config.has_protein
+        )
     
     return molecular_complex
 
 
-def prepare_protein_ligand_complex(protein_path, ligand_path, config):
+def prepare_protein_ligand_complex(protein, ligand, config):
     """Prepare a protein-ligand complex for voxelization."""
     # Load the complex
-    complex_obj = load_complex_from_files(protein_path, ligand_path)
-    
+    if isinstance(protein, (str, pathlib.Path)):
+        complex_obj = load_complex_from_files(protein, ligand)
+    else:
+        complex_obj = MolecularComplex(protein, ligand)
     # Apply transformations
     if config.random_rotation:
         complex_obj = apply_random_rotation(complex_obj)
@@ -151,10 +167,10 @@ def voxelize_molecule(mol, config):
     return voxel
 
 
-def voxelize_complex(protein_path, ligand_path, config):
+def voxelize_complex(protein, ligand, config):
     """Voxelize a protein-ligand complex using the unified voxelizer."""
     # Prepare the complex
-    complex_obj = prepare_protein_ligand_complex(protein_path, ligand_path, config)
+    complex_obj = prepare_protein_ligand_complex(protein, ligand, config)
     
     # Create the voxelizer
     voxelizer = UnifiedVoxelGrid(config)

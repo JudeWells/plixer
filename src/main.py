@@ -128,7 +128,7 @@ def finetune_vox2smiles(cfg: DictConfig):
     
     combined_dataset = CombinedDataset(
         poc2mol_output_dataset=poc2mol_output_dataset,
-        voxmiles_dataset=vox2smiles_data_module.train_dataset,
+        vox2smiles_dataset=vox2smiles_data_module.train_dataset,
         ratio=cfg.training.ratio,
     )
     
@@ -226,4 +226,5 @@ def generate(cfg: DictConfig):
 
 
 if __name__ == "__main__":
+    raise NotImplementedError("This script is not implemented yet. Use train.py instead")
     main() 

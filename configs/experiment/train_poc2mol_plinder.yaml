@@ -1,16 +1,16 @@
 # @package _global_
+# train poc2mol only on data from plinder
 defaults:
-  - _self_
-  - override /data: poc2mol_PDBbind_data
+  - override /data: poc2mol_plinder_data
   - override /model: poc2mol
   - override /logger: wandb.yaml
+  - _self_
 
 task_name: "poc2mol"
 tags: ["dev"]
 train: True
 test: True
 optimized_metric: "val/loss"
-ckpt_path: null # over-ride this to resume training
 seed: 42
 
 logger:
@@ -25,8 +25,13 @@ logger:
     id: null # pass correct id to resume experiment!
 
 model:
-  override_optimizer_on_load: true
+  override_optimizer_on_load: false
+  config:
+    in_channels: 4
+    out_channels: 9
 
 trainer:
-  val_check_interval: 50
+  val_check_interval: null
+  check_val_every_n_epoch: 2
 
+ckpt_path: null
