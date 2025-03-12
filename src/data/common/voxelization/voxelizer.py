@@ -14,7 +14,6 @@ from src.data.common.voxelization.config import VoxelizationConfig
 class UnifiedView(View):
     """
     A unified view class that can handle both protein-ligand complexes and standalone ligands.
-    This is based on the existing LigView and ComplexView classes but with a unified interface.
     """
     def __init__(
         self,

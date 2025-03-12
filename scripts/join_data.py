@@ -3,13 +3,14 @@ import matplotlib.pyplot as plt
 import seaborn as sns
 
 # Read the log likelihood results
-log_likelihood_df = pd.read_csv("vox2smiles_evaluation2/log_likelihood_results.csv")
+log_likelihood_df = pd.read_csv("outputs/vox2smiles_evaluation1/log_likelihood_results.csv")
 log_likelihood_df = log_likelihood_df.drop_duplicates(subset=['smiles'])
 print("Number of unique smiles in log likelihood results: ", len(log_likelihood_df))
+log_likelihood_df.sort_values(by='per_token_log_likelihood', ascending=False, inplace=True)
 log_likelihood_df.reset_index(drop=True, inplace=True)
 log_likelihood_df['ranking'] = log_likelihood_df.index
 
-hit_label_df = pd.read_csv("/mnt/disk2/VoxelDiffOuter/VoxelDiff2/data/cache_round1_smiles_all_out_hits_and_others.csv")
+hit_label_df = pd.read_csv("data/cache_round1_smiles_all_out_hits_and_others.csv")
 hit_label_df = hit_label_df.drop_duplicates(subset=['smiles'])
 print("Number of unique smiles in hit label results: ", len(hit_label_df))
 # Merge the two dataframes on the smiles column
@@ -19,7 +20,7 @@ print(f"Average miss: {merged_df[merged_df['hit']==0]['per_token_log_likelihood'
 print(f"Average hit ranking: {merged_df[merged_df['hit']==1]['ranking'].mean()}")
 print(f"Average miss ranking: {merged_df[merged_df['hit']==0]['ranking'].mean()}")
 # Save the merged dataframe
-merged_df.to_csv("vox2smiles_evaluation2/log_likelihood_results_with_hit_label.csv", index=False)
+merged_df.to_csv("outputs/vox2smiles_evaluation1/log_likelihood_results_with_hit_label.csv", index=False)
 n_hits = merged_df[merged_df['hit']==1].shape[0]
 merged_df = merged_df.sort_values(by='ranking')
 top_df = merged_df.head(n_hits)
@@ -52,7 +53,7 @@ plt.axvline(miss_mean, color='red', linestyle='--', label=f'Non-Hit Mean: {miss_
 
 # Save the plot
 plt.tight_layout()
-plt.savefig("vox2smiles_evaluation2/log_likelihood_distribution.png", dpi=300)
+plt.savefig("outputs/vox2smiles_evaluation1/log_likelihood_distribution.png", dpi=300)
 plt.show()
 
 

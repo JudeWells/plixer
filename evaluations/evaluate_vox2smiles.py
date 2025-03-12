@@ -495,10 +495,10 @@ def main(args):
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Evaluate vox2smiles model")
     parser.add_argument("--checkpoint", type=str, 
-                        default="/mnt/disk2/VoxelDiffOuter/VoxelDiff2/logs/vox2smilesCombined/runs/2025-03-06_09-11-10/checkpoints/interrupted.ckpt",
+                        default="logs/vox2smilesCombined/runs/2025-03-06_09-11-10/checkpoints/interrupted.ckpt",
                         help="Path to model checkpoint")
     parser.add_argument("--molecule", type=str, 
-                        default="/mnt/disk2/VoxelDiffOuter/VoxelDiff2/data/5sry_no_hydrogens.mol2",
+                        default="data/5sry_no_hydrogens.mol2",
                         help="Path to molecule file")
     parser.add_argument("--model-config", type=str, 
                         default="configs/model/vox2smiles.yaml",
@@ -519,7 +519,7 @@ if __name__ == "__main__":
                         default=0.9,
                         help="Top-p sampling parameter")
     parser.add_argument("--smiles-csv", type=str, 
-                        default="/mnt/disk2/VoxelDiffOuter/VoxelDiff2/data/cache_round1_smiles_all_out_hits_and_others.csv",
+                        default="data/cache_round1_smiles_all_out_hits_and_others.csv",
                         help="Path to CSV file containing SMILES strings for log likelihood calculation")
     parser.add_argument("--smiles-column", type=str, 
                         default="smiles",
