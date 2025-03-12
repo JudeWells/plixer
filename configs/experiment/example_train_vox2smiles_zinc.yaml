@@ -51,4 +51,4 @@ model:
   override_optimizer_on_load: false
 
 trainer:
-  val_check_interval: 1500
+  val_check_interval: null

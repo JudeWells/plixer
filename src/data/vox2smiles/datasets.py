@@ -179,18 +179,16 @@ class ParquetVox2SmilesDataset(Dataset):
         
         for file_path in self.file_list:
             # Just read the metadata to get row count (faster than loading data)
-            df = pd.read_parquet(file_path, columns=[])
+            df = pd.read_parquet(file_path, columns=['source_file'])
             file_size = len(df)
             self.file_sizes.append(file_size)
             self.total_molecules += file_size
         
-        # Create a mapping from molecule index to file index and row index
         self.molecule_map = []
         for file_idx, size in enumerate(self.file_sizes):
             for row_idx in range(size):
                 self.molecule_map.append((file_idx, row_idx))
         print(f"Molecule file index created with {len(self.molecule_map)} molecules")
-        # Set up a simple cache to avoid reloading the same file multiple times
         self.cache = {}
         self.cache_size = cache_size
 
