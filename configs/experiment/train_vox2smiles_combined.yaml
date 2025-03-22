@@ -1,11 +1,12 @@
 # @package _global_
+# train vox2smiles model on zinc data and outputs of poc2mol model
 defaults:
   - _self_
   - override /data: vox2smiles_combined_data
   - override /model: vox2smiles
   - override /logger: wandb.yaml
 
-task_name: "vox2smilesZinc"
+task_name: "vox2smilesZincAndPoc2MolOutputs"
 tags: ["dev", "resume_from_ckpt"]
 train: True
 test: True
