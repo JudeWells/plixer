@@ -98,7 +98,8 @@ class Poc2Mol(LightningModule):
         return self.model(x=prot_vox, labels=labels)
 
     def training_step(self, batch, batch_idx):
-        self.log("train/load_time", batch["load_time"].mean(), on_step=True, on_epoch=False, prog_bar=True)
+        if "load_time" in batch:
+            self.log("train/load_time", batch["load_time"].mean(), on_step=True, on_epoch=False, prog_bar=True)
         outputs, loss = self(batch["protein"], labels=batch["ligand"])
         self.log("train/loss", loss, on_step=False, on_epoch=True, prog_bar=True)
         self.log("train/batch_loss", loss, on_step=True, on_epoch=False, prog_bar=True)
