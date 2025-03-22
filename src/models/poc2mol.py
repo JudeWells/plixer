@@ -103,7 +103,9 @@ class Poc2Mol(LightningModule):
         outputs, loss = self(batch["protein"], labels=batch["ligand"])
         self.log("train/loss", loss, on_step=False, on_epoch=True, prog_bar=True)
         self.log("train/batch_loss", loss, on_step=True, on_epoch=False, prog_bar=True)
-        self.log_channel_means(batch, outputs)
+        self.log_channel_means(batch, outputs),
+        if batch_idx == 0:
+            visualise_batch(batch["ligand"], outputs, batch["name"], save_dir=self.img_save_dir, batch=str(batch_idx))
         return loss
 
     def validation_step(self, batch, batch_idx):

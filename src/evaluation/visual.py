@@ -57,7 +57,7 @@ def visualise_batch(lig, pred, names, angles=None, save_dir=None, batch='none', 
     show the predictions side by side in a single plot
     show 2 angles for each ligand (label and pred) in one row of the plot
     """
-    colors = ['green', 'red', 'blue', 'yellow', 'magenta', 'magenta', 'magenta', 'magenta', 'cyan']
+    color_names = ['green', 'red', 'blue', 'yellow', 'magenta', 'magenta', 'magenta', 'magenta', 'cyan']
     if not isinstance(lig, np.ndarray):
         lig = lig.detach().cpu().numpy()
     lig = (lig > 0.5).astype(int)
@@ -67,7 +67,7 @@ def visualise_batch(lig, pred, names, angles=None, save_dir=None, batch='none', 
     pred = (pred > 0.5).astype(int)
 
     if angles is None:
-        angles = [(45, 45), (45, -45)]
+        angles = [(45, 45)] # angles = [(45, 45), (45, -45)]
     if reuse_labels:
         label_save_dir = os.path.join(save_dir,  '..', '..', '..', 'label_images')
     else:
@@ -77,10 +77,13 @@ def visualise_batch(lig, pred, names, angles=None, save_dir=None, batch='none', 
     os.makedirs(label_save_dir, exist_ok=True)
     os.makedirs(pred_save_dir, exist_ok=True)
     # only visualise the main atom types:
-    n_channels = limit_channels or lig.shape[1]
+    if limit_channels is not None:
+        n_channels = min(limit_channels, lig.shape[1])
+    else:
+        n_channels = lig.shape[1]
     colors = np.zeros((n_channels, 4))
     for c in range(n_channels):
-        colors[c] = mcolors.to_rgba(colors[c])
+        colors[c] = mcolors.to_rgba(color_names[c])
 
     # Set transparency for all colors
     colors[:, 3] = 0.2
