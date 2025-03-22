@@ -51,12 +51,13 @@ def show_3d_voxel_lig_only(vox, angles=None, save_dir=None, identifier='lig'):
     plt.close(fig)
 
 
-def visualise_batch(lig, pred, names, angles=None, save_dir=None, batch='none'):
+def visualise_batch(lig, pred, names, angles=None, save_dir=None, batch='none', reuse_labels=True, log_wandb=True, limit_channels=None):
     """
     Visualise the label and the predictions for a batch of ligands
     show the predictions side by side in a single plot
     show 2 angles for each ligand (label and pred) in one row of the plot
     """
+    colors = ['green', 'red', 'blue', 'yellow', 'magenta', 'magenta', 'magenta', 'magenta', 'cyan']
     if not isinstance(lig, np.ndarray):
         lig = lig.detach().cpu().numpy()
     lig = (lig > 0.5).astype(int)
@@ -67,23 +68,19 @@ def visualise_batch(lig, pred, names, angles=None, save_dir=None, batch='none'):
 
     if angles is None:
         angles = [(45, 45), (45, -45)]
-    label_save_dir = os.path.join(save_dir,  '..', '..', '..', 'label_images')
+    if reuse_labels:
+        label_save_dir = os.path.join(save_dir,  '..', '..', '..', 'label_images')
+    else:
+        label_save_dir = os.path.join(save_dir, f'batch_{batch}', 'label_images')
     pred_save_dir = os.path.join(save_dir, f'batch_{batch}', 'predictions')
 
     os.makedirs(label_save_dir, exist_ok=True)
     os.makedirs(pred_save_dir, exist_ok=True)
-    # Define colors for each atom type
-    colors = np.zeros((lig.shape[1], 4))
-    colors[0] = mcolors.to_rgba('green')  # carbon_ligand
-    # colors[1] = mcolors.to_rgba('white')  # hydrogen_ligand
-    colors[1] = mcolors.to_rgba('red')  # oxygen_ligand
-    colors[2] = mcolors.to_rgba('blue')  # nitrogen_ligand
-    colors[3] = mcolors.to_rgba('yellow')  # sulfur_ligand
-    colors[4] = mcolors.to_rgba('magenta')  # chlorine_ligand
-    colors[5] = mcolors.to_rgba('magenta')  # fluorine_ligand
-    colors[6] = mcolors.to_rgba('magenta')  # iodine_ligand
-    colors[7] = mcolors.to_rgba('magenta')  # bromine_ligand
-    colors[8] = mcolors.to_rgba('cyan')  # other_ligand
+    # only visualise the main atom types:
+    n_channels = limit_channels or lig.shape[1]
+    colors = np.zeros((n_channels, 4))
+    for c in range(n_channels):
+        colors[c] = mcolors.to_rgba(colors[c])
 
     # Set transparency for all colors
     colors[:, 3] = 0.2
@@ -101,7 +98,7 @@ def visualise_batch(lig, pred, names, angles=None, save_dir=None, batch='none'):
                 ax_label.set_xticks([])  # Turn off x ticks
                 ax_label.set_yticks([])  # Turn off y ticks
                 ax_label.set_zticks([])  # Turn off z ticks
-                for channel in range(lig.shape[1]):
+                for channel in range(n_channels):
                     ax_label.voxels(lig[i, channel], facecolors=colors[channel], edgecolors=colors[channel])
                 ax_label.view_init(elev=angle[0], azim=angle[1])
                 fig_label.savefig(label_save_path)
@@ -127,7 +124,7 @@ def visualise_batch(lig, pred, names, angles=None, save_dir=None, batch='none'):
             ax_pred.set_xticks([])  # Turn off x ticks
             ax_pred.set_yticks([])  # Turn off y ticks
             ax_pred.set_zticks([])  #
-            for channel in range(pred.shape[1]):
+            for channel in range(n_channels):
                 ax_pred.voxels(pred[i, channel], facecolors=colors[channel], edgecolors=colors[channel])
             ax_pred.view_init(elev=angle[0], azim=angle[1])
             fig_pred.savefig(pred_save_path)
@@ -148,7 +145,8 @@ def visualise_batch(lig, pred, names, angles=None, save_dir=None, batch='none'):
     plt.subplots_adjust(wspace=0.1, hspace=0.1)
     combined_image_path = os.path.join(save_dir, f'batch_{batch}_visualisation.png')
     plt.savefig(combined_image_path)
-    wandb.log({f'batch_{batch}_visualisation': wandb.Image(combined_image_path)})
+    if log_wandb:
+        wandb.log({f'batch_{batch}_visualisation': wandb.Image(combined_image_path)})
     plt.close(fig)
 
 

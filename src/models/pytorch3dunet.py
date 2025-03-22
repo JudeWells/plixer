@@ -58,8 +58,11 @@ class AbstractUNet(nn.Module):
                  num_groups=8, num_levels=4, is_segmentation=True, conv_kernel_size=3, pool_kernel_size=2,
                  conv_padding=1, conv_upscale=2, upsample='default', dropout_prob=0.1, is3d=True, loss=None):
         super(AbstractUNet, self).__init__()
-
-        self.loss_fn = get_loss_criterion(loss) if loss else None
+        try:
+            self.loss_fn = get_loss_criterion(loss) if loss else None
+        except Exception as e:
+            print(f"Error initializing loss function: {e}")
+            self.loss_fn = None
 
         if isinstance(f_maps, int):
             f_maps = number_of_features_per_level(f_maps, num_levels=num_levels)
