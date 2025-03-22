@@ -59,11 +59,11 @@ def visualise_batch(lig, pred, names, angles=None, save_dir=None, batch='none', 
     """
     color_names = ['green', 'red', 'blue', 'yellow', 'magenta', 'magenta', 'magenta', 'magenta', 'cyan']
     if not isinstance(lig, np.ndarray):
-        lig = lig.detach().cpu().numpy()
+        lig = lig.detach().cpu().float().numpy()
     lig = (lig > 0.5).astype(int)
 
     if not isinstance(pred, np.ndarray):
-        pred = pred.detach().cpu().numpy()
+        pred = pred.detach().cpu().float().numpy()
     pred = (pred > 0.5).astype(int)
 
     if angles is None:

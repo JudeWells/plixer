@@ -5,8 +5,6 @@ import torch.nn as nn
 from src.models.pytorch3dunet_lib.unet3d.buildingblocks import DoubleConv, ResNetBlock, ResNetBlockSE, \
     create_decoders, create_encoders
 
-from src.models.pytorch3dunet_lib.unet3d.losses import get_loss_criterion
-
 def number_of_features_per_level(init_channel_number, num_levels):
     return [init_channel_number * 2 ** k for k in range(num_levels)]
 def get_class(class_name, modules):
@@ -39,8 +37,7 @@ class AbstractUNet(nn.Module):
         num_groups (int): number of groups for the GroupNorm
         num_levels (int): number of levels in the encoder/decoder path (applied only if f_maps is an int)
             default: 4
-        is_segmentation (bool): if True and the model is in eval mode, Sigmoid/Softmax normalization is applied
-            after the final convolution; if False (regression problem) the normalization layer is skipped
+        
         conv_kernel_size (int or tuple): size of the convolving kernel in the basic_module
         pool_kernel_size (int or tuple): the size of the window
         conv_padding (int or tuple): add zero-padding added to all three sides of the input
@@ -55,14 +52,9 @@ class AbstractUNet(nn.Module):
     """
 
     def __init__(self, in_channels, out_channels, final_sigmoid, basic_module, f_maps=64, layer_order='gcr',
-                 num_groups=8, num_levels=4, is_segmentation=True, conv_kernel_size=3, pool_kernel_size=2,
-                 conv_padding=1, conv_upscale=2, upsample='default', dropout_prob=0.1, is3d=True, loss=None):
+                 num_groups=8, num_levels=4, conv_kernel_size=3, pool_kernel_size=2,
+                 conv_padding=1, conv_upscale=2, upsample='default', dropout_prob=0.1, is3d=True):
         super(AbstractUNet, self).__init__()
-        try:
-            self.loss_fn = get_loss_criterion(loss) if loss else None
-        except Exception as e:
-            print(f"Error initializing loss function: {e}")
-            self.loss_fn = None
 
         if isinstance(f_maps, int):
             f_maps = number_of_features_per_level(f_maps, num_levels=num_levels)
@@ -88,12 +80,8 @@ class AbstractUNet(nn.Module):
         else:
             self.final_conv = nn.Conv2d(f_maps[0], out_channels, 1)
 
-        if is_segmentation:
-            # semantic segmentation problem
-            if final_sigmoid:
-                self.final_activation = nn.Sigmoid()
-            else:
-                self.final_activation = nn.Softmax(dim=1)
+        if final_sigmoid:
+            self.final_activation = nn.Sigmoid()
         else:
             # regression problem
             self.final_activation = None
@@ -134,8 +122,8 @@ class UNet3D(AbstractUNet):
     """
 
     def __init__(self, in_channels, out_channels, final_sigmoid=True, f_maps=64, layer_order='gcr',
-                 num_groups=8, num_levels=4, is_segmentation=True, conv_padding=1,
-                 conv_upscale=2, upsample='default', dropout_prob=0.1, loss=None, **kwargs):
+                 num_groups=8, num_levels=4, conv_padding=1,
+                 conv_upscale=2, upsample='default', dropout_prob=0.1, **kwargs):
         super(UNet3D, self).__init__(in_channels=in_channels,
                                      out_channels=out_channels,
                                      final_sigmoid=final_sigmoid,
@@ -144,12 +132,10 @@ class UNet3D(AbstractUNet):
                                      layer_order=layer_order,
                                      num_groups=num_groups,
                                      num_levels=num_levels,
-                                     is_segmentation=is_segmentation,
                                      conv_padding=conv_padding,
                                      conv_upscale=conv_upscale,
                                      upsample=upsample,
                                      dropout_prob=dropout_prob,
-                                     loss=loss,
                                      is3d=True)
 
 
@@ -162,8 +148,8 @@ class ResidualUNet3D(AbstractUNet):
     """
 
     def __init__(self, in_channels, out_channels, final_sigmoid=True, f_maps=64, layer_order='gcr',
-                 num_groups=8, num_levels=5, is_segmentation=True, conv_padding=1,
-                 conv_upscale=2, upsample='default', dropout_prob=0.1, loss=None, **kwargs):
+                 num_groups=8, num_levels=5, conv_padding=1,
+                 conv_upscale=2, upsample='default', dropout_prob=0.1, **kwargs):
         super(ResidualUNet3D, self).__init__(in_channels=in_channels,
                                              out_channels=out_channels,
                                              final_sigmoid=final_sigmoid,
@@ -172,12 +158,10 @@ class ResidualUNet3D(AbstractUNet):
                                              layer_order=layer_order,
                                              num_groups=num_groups,
                                              num_levels=num_levels,
-                                             is_segmentation=is_segmentation,
                                              conv_padding=conv_padding,
                                              conv_upscale=conv_upscale,
                                              upsample=upsample,
                                              dropout_prob=dropout_prob,
-                                             loss=loss,
                                              is3d=True)
 
 
@@ -192,8 +176,8 @@ class ResidualUNetSE3D(AbstractUNet):
     """
 
     def __init__(self, in_channels, out_channels, final_sigmoid=True, f_maps=64, layer_order='gcr',
-                 num_groups=8, num_levels=5, is_segmentation=True, conv_padding=1,
-                 conv_upscale=2, upsample='default', dropout_prob=0.1, loss=None, **kwargs):
+                 num_groups=8, num_levels=5, conv_padding=1,
+                 conv_upscale=2, upsample='default', dropout_prob=0.1, **kwargs):
         super(ResidualUNetSE3D, self).__init__(in_channels=in_channels,
                                                out_channels=out_channels,
                                                final_sigmoid=final_sigmoid,
@@ -202,21 +186,15 @@ class ResidualUNetSE3D(AbstractUNet):
                                                layer_order=layer_order,
                                                num_groups=num_groups,
                                                num_levels=num_levels,
-                                               is_segmentation=is_segmentation,
                                                conv_padding=conv_padding,
                                                conv_upscale=conv_upscale,
                                                upsample=upsample,
                                                dropout_prob=dropout_prob,
-                                               loss=loss,
                                                is3d=True)
 
     def forward(self, x, labels=None):
         # run super forward method:
         preds = super().forward(x)
-        # calculate loss if labels are provided
-        if labels is not None:
-            loss = self.loss_fn(preds, labels)
-            return preds, loss
         return preds
 
 if __name__=="__main__":

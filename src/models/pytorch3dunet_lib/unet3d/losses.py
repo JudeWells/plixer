@@ -126,12 +126,18 @@ class DiceLoss(_AbstractDiceLoss):
     The input to the loss function is assumed to be a logit and will be normalized by the Sigmoid function.
     """
 
-    def __init__(self, weight=None, normalization='none'):
+    def __init__(self, weight=None, normalization='sigmoid'):
         super().__init__(weight, normalization)
 
     def dice(self, input, target, weight):
         return compute_per_channel_dice(input, target, weight=self.weight)
 
+class DiceLossNoSigmoid(_AbstractDiceLoss):
+    def __init__(self, weight=None, normalization='none'):
+        super().__init__(weight, normalization)
+
+    def dice(self, input, target, weight):
+        return compute_per_channel_dice(input, target, weight=self.weight)
 
 class GeneralizedDiceLoss(_AbstractDiceLoss):
     """Computes Generalized Dice Loss (GDL) as described in https://arxiv.org/pdf/1707.03237.pdf.
@@ -171,15 +177,21 @@ class GeneralizedDiceLoss(_AbstractDiceLoss):
 class BCEDiceLoss(nn.Module):
     """Linear combination of BCE and Dice losses"""
 
-    def __init__(self, alpha, beta, normalisation='none'):
+    def __init__(self, alpha, beta, normalization='none', with_logits=True):
         super(BCEDiceLoss, self).__init__()
         self.alpha = alpha
-        self.bce = nn.BCEWithLogitsLoss()
         self.beta = beta
-        self.dice = DiceLoss(normalization=normalisation)
+        if with_logits:
+            self.bce = nn.BCEWithLogitsLoss()
+            self.dice = DiceLoss(normalization=normalization)
+        else:
+            self.bce = nn.BCELoss()
+            self.dice = DiceLossNoSigmoid()
+        
+        
 
     def forward(self, input, target):
-        return self.alpha * self.bce(input, target) + self.beta * self.dice(input, target)
+        return {"bce": self.alpha * self.bce(input, target), "dice": self.beta * self.dice(input, target)}
 
 
 class WeightedCrossEntropyLoss(nn.Module):
@@ -274,7 +286,7 @@ def flatten(tensor):
     return transposed.contiguous().view(C, -1)
 
 
-def get_loss_criterion(loss_config):
+def get_loss_criterion(loss_config, with_logits: bool = True):
     """
     Returns the loss function based on provided configuration
     :param config: (dict) a top level configuration object containing the 'loss' key
@@ -293,7 +305,7 @@ def get_loss_criterion(loss_config):
     if pos_weight is not None:
         pos_weight = torch.tensor(pos_weight)
 
-    loss = _create_loss(name, loss_config, weight, ignore_index, pos_weight)
+    loss = _create_loss(name, loss_config, weight, ignore_index, pos_weight, with_logits=with_logits)
 
     if not (ignore_index is None or name in ['CrossEntropyLoss', 'WeightedCrossEntropyLoss']):
         # use MaskingLossWrapper only for non-cross-entropy losses, since CE losses allow specifying 'ignore_index' directly
@@ -310,13 +322,13 @@ def get_loss_criterion(loss_config):
 
 #######################################################################################################################
 
-def _create_loss(name, loss_config, weight, ignore_index, pos_weight):
+def _create_loss(name, loss_config, weight, ignore_index, pos_weight, with_logits):
     if name == 'BCEWithLogitsLoss':
         return nn.BCEWithLogitsLoss(pos_weight=pos_weight)
     elif name == 'BCEDiceLoss':
         alpha = loss_config.get('alpha', 1.)
         beta = loss_config.get('beta', 1.)
-        return BCEDiceLoss(alpha, beta, normalisation=loss_config.get('normalisation', 'none'))
+        return BCEDiceLoss(alpha, beta, normalization=loss_config.get('normalization', 'none'), with_logits=with_logits)
     elif name == 'CrossEntropyLoss':
         if ignore_index is None:
             ignore_index = -100  # use the default 'ignore_index' as defined in the CrossEntropyLoss

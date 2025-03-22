@@ -11,23 +11,23 @@ from transformers.optimization import get_scheduler
 
 from src.evaluation.visual import show_3d_voxel_lig_only, visualise_batch
 
+from src.models.pytorch3dunet_lib.unet3d.losses import get_loss_criterion
+
 class ResUnetConfig:
     def __init__(
         self,
         in_channels: int = 1,
         out_channels: int = 2,
-        final_sigmoid: bool = True,
+        final_sigmoid: bool = False,
         f_maps: int = 64,
         layer_order: str = 'gcr',
         num_groups: int = 8,
         num_levels: int = 5,
-        is_segmentation: bool = True,
         conv_padding: int = 1,
         conv_upscale: int = 2,
         upsample: str = 'default',
         dropout_prob: float = 0.1,
         basic_module: ResNetBlock = ResNetBlockSE,
-        loss: Dict = None,
 
     ):
         self.in_channels = in_channels
@@ -37,17 +37,16 @@ class ResUnetConfig:
         self.layer_order = layer_order
         self.num_groups = num_groups
         self.num_levels = num_levels
-        self.is_segmentation = is_segmentation
         self.conv_padding = conv_padding
         self.conv_upscale = conv_upscale
         self.upsample = upsample
         self.dropout_prob = dropout_prob
         self.basic_module = basic_module
-        self.loss = loss
 
 class Poc2Mol(LightningModule):
     def __init__(
         self,
+        loss,
         config: ResUnetConfig,
         lr: float = 1e-4,
         weight_decay: float = 0.0,
@@ -73,14 +72,14 @@ class Poc2Mol(LightningModule):
             layer_order=config.layer_order,
             num_groups=config.num_groups,
             num_levels=config.num_levels,
-            is_segmentation=config.is_segmentation,
             conv_padding=config.conv_padding,
             conv_upscale=config.conv_upscale,
             upsample=config.upsample,
             dropout_prob=config.dropout_prob,
             basic_module=config.basic_module,
-            loss=config.loss,
         )
+        with_logits = not config.final_sigmoid
+        self.loss = get_loss_criterion(loss, with_logits=with_logits)
         self.lr = lr
         self.weight_decay = weight_decay
         self.scheduler_name = scheduler_name
@@ -100,19 +99,37 @@ class Poc2Mol(LightningModule):
     def training_step(self, batch, batch_idx):
         if "load_time" in batch:
             self.log("train/load_time", batch["load_time"].mean(), on_step=True, on_epoch=False, prog_bar=True)
-        outputs, loss = self(batch["protein"], labels=batch["ligand"])
+        outputs = self(batch["protein"], labels=batch["ligand"])
+        loss = self.loss(outputs, batch["ligand"])
+        if isinstance(loss, dict):
+            running_loss = 0
+            for k,v in loss.items():
+                self.log(f"train/{k}", v, on_step=False, on_epoch=True, prog_bar=False)
+                self.log(f"train/batch_{k}", v, on_step=True, on_epoch=False, prog_bar=False)
+                running_loss += v
+            loss = running_loss
         self.log("train/loss", loss, on_step=False, on_epoch=True, prog_bar=True)
         self.log("train/batch_loss", loss, on_step=True, on_epoch=False, prog_bar=True)
         self.log_channel_means(batch, outputs),
         if batch_idx == 0:
-            visualise_batch(batch["ligand"], outputs, batch["name"], save_dir=self.img_save_dir, batch=str(batch_idx))
+            # apply sigmoid to outputs for visualisation
+            outputs_for_viz = torch.sigmoid(outputs.detach())
+            visualise_batch(batch["ligand"], outputs_for_viz, batch["name"], save_dir=self.img_save_dir, batch=str(batch_idx))
         return loss
 
     def validation_step(self, batch, batch_idx):
-        outputs, loss = self(batch["protein"], labels=batch["ligand"])
+        outputs = self(batch["protein"], labels=batch["ligand"])
+        loss = self.loss(outputs, batch["ligand"])
+        if isinstance(loss, dict):
+            running_loss = 0
+            for k,v in loss.items():
+                self.log(f"val/{k}", v, on_step=False, on_epoch=True, prog_bar=False)
+                running_loss += v
+            loss = running_loss
         save_dir = f"{self.img_save_dir}/val"
         if self.visualise_val and batch_idx in [0, 50, 100]:
-            lig, pred, names = batch["ligand"][:4], outputs[:4], batch["name"][:4]
+            outputs_for_viz = torch.sigmoid(outputs.detach())
+            lig, pred, names = batch["ligand"][:4], outputs_for_viz[:4], batch["name"][:4]
 
             visualise_batch(
                 lig,
@@ -126,7 +143,7 @@ class Poc2Mol(LightningModule):
         return loss
 
     def test_step(self, batch, batch_idx):
-        outputs, loss = self(batch["protein"], labels=batch["ligand"])
+        outputs = self(batch["protein"], labels=batch["ligand"])
         pass
 
     def configure_optimizers(self) -> Dict[str, Any]:

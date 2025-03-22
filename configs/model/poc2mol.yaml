@@ -3,23 +3,22 @@ config:
   _target_: src.models.poc2mol.ResUnetConfig
   in_channels: 4
   out_channels: 9
-  final_sigmoid: False
+  final_sigmoid: false
   f_maps: 64
   layer_order: 'gcr'
   num_groups: 8
   num_levels: 5
-  is_segmentation: True
   conv_padding: 1
   conv_upscale: 2
   upsample: default
   dropout_prob: 0.1
   basic_module: ${oc.select:src.models.pytorch3dunet_lib.unet3d.buildingblocks.ResNetBlockSE, src.models.pytorch3dunet_lib.unet3d.buildingblocks.ResNetBlockSE}
-  loss:
-    name: BCEDiceLoss
-    weight: null
-    normalization: null
-    alpha: 1.0 # BCE weight
-    beta: 1.0 # DICE weight
+loss:
+  name: BCEDiceLoss
+  weight: null
+  normalization: sigmoid # which normalization to apply before DICE loss
+  alpha: 1.0 # BCE weight
+  beta: 1.0 # DICE weight
 matmul_precision: 'high'
 lr: 1e-3
 scheduler_name: constant_with_warmup
