@@ -128,7 +128,8 @@ class Poc2Mol(LightningModule):
             loss = running_loss
         save_dir = f"{self.img_save_dir}/val"
         if self.visualise_val and batch_idx in [0, 50, 100]:
-            lig, pred, names = batch["ligand"][:4], outputs[:4], batch["name"][:4]
+            outputs_for_viz = torch.sigmoid(outputs.detach())
+            lig, pred, names = batch["ligand"][:4], outputs_for_viz[:4], batch["name"][:4]
 
             visualise_batch(
                 lig,
