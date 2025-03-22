@@ -28,6 +28,8 @@ from src.data.common.voxelization.molecule_utils import (
 )
 
 import json
+from collections import defaultdict
+from tqdm import tqdm
 
 class ComplexDataset(Dataset):
     """
@@ -250,14 +252,25 @@ class PlinderParquetDataset(Dataset):
         
         indices_dir = os.path.join(data_path, 'indices')
         
-        # Load indices
-        with open(os.path.join(indices_dir, 'cluster_index.json'), 'r') as f:
-            self.cluster_index = json.load(f)
-        
-        with open(os.path.join(indices_dir, 'file_mapping.json'), 'r') as f:
-            file_mapping = json.load(f)
+        cluster_index_path = os.path.join(indices_dir, 'cluster_index.json')
+        if os.path.exists(cluster_index_path):
+            with open(os.path.join(indices_dir, 'cluster_index.json'), 'r') as f:
+                self.cluster_index = json.load(f)
+        else:
+            #create cluster index
+            self.cluster_index = self._create_indices(indices_dir)
+            
+        file_mapping_path = os.path.join(indices_dir, 'file_mapping.json')
+        if os.path.exists(file_mapping_path):
+            with open(file_mapping_path, 'r') as f:
+                file_mapping = json.load(f)
             # Convert to full paths
             self.file_mapping = {int(k): os.path.join(data_path, v) for k, v in file_mapping.items()}
+        else:
+            #create file mapping
+            if not hasattr(self, 'file_mapping'):
+                # If indices were not created above, create file mapping separately
+                self.file_mapping = self._create_file_mapping(indices_dir, data_path)
         
         # Get list of cluster IDs
         self.cluster_ids = sorted(list(self.cluster_index.keys()))
@@ -357,7 +370,7 @@ class PlinderParquetDataset(Dataset):
                     element_symbols=row['ligand_element_symbols']
                 )
 
-                # Create a temporary config with the current instance's settings
+                # TODO see if we can remove this
                 temp_config = Poc2MolDataConfig(
                     vox_size=self.config.vox_size,
                     box_dims=self.config.box_dims,
@@ -535,3 +548,132 @@ class PlinderParquetDataset(Dataset):
             if self.fail_counter > self.fail_threshold:
                 raise e
             return self.__getitem__(np.random.randint(0, len(self))) 
+
+    def _create_indices(self, indices_dir):
+        """
+        Create index files for faster dataset loading.
+        
+        Args:
+            indices_dir: Directory to save index files
+        
+        Returns:
+            dict: The cluster index
+        """
+        # Create output directory if it doesn't exist
+        os.makedirs(indices_dir, exist_ok=True)
+        
+        # Get all parquet files in the data path
+        parquet_files = glob.glob(os.path.join(self.data_path, "*.parquet"))
+        
+        if not parquet_files:
+            raise ValueError(f"No parquet files found in {self.data_path}")
+        
+        print(f"Found {len(parquet_files)} parquet files to process")
+        
+        # Create global indices
+        all_samples = []
+        file_indices = []
+        
+        # Create cluster-based indices
+        cluster_samples = defaultdict(list)
+        
+        # Process each parquet file
+        for file_idx, file_path in enumerate(tqdm(parquet_files, desc="Processing files")):
+            try:
+                # Read the parquet file
+                chunk_df = pd.read_parquet(file_path)
+                
+                # Process each row
+                for row_idx, row in chunk_df.iterrows():
+                    # Get cluster ID (default to '0' if not present)
+                    cluster_id = str(row.get('cluster', '0'))
+                    
+                    sample = {
+                        'system_id': row['system_id'],
+                        'cluster': cluster_id,
+                    }
+                    
+                    all_samples.append(sample)
+                    file_indices.append(file_idx)
+                    
+                    # Add to cluster-based indices
+                    cluster_samples[cluster_id].append({
+                        'file_idx': file_idx,
+                        'system_id': sample['system_id'],
+                        'row_idx': int(row_idx)
+                    })
+            except Exception as e:
+                print(f"Error processing {file_path}: {e}")
+        
+        # Save global indices
+        global_index = {
+            'samples': all_samples,
+            'file_indices': file_indices
+        }
+        
+        with open(os.path.join(indices_dir, 'global_index.json'), 'w') as f:
+            json.dump(global_index, f, indent=2)
+        
+        # Save cluster-based indices
+        cluster_index = {str(cluster_id): samples for cluster_id, samples in cluster_samples.items()}
+        
+        with open(os.path.join(indices_dir, 'cluster_index.json'), 'w') as f:
+            json.dump(cluster_index, f, indent=2)
+        
+        # Save file mapping
+        file_mapping = {
+            i: os.path.relpath(file_path, self.data_path) for i, file_path in enumerate(parquet_files)
+        }
+        
+        with open(os.path.join(indices_dir, 'file_mapping.json'), 'w') as f:
+            json.dump(file_mapping, f, indent=2)
+        
+        # Generate summary
+        summary = {
+            'total_samples': len(all_samples),
+            'total_clusters': len(cluster_samples),
+            'total_files': len(parquet_files),
+            'clusters': {cluster: len(samples) for cluster, samples in cluster_samples.items()}
+        }
+        
+        with open(os.path.join(indices_dir, 'index_summary.json'), 'w') as f:
+            json.dump(summary, f, indent=2)
+        
+        print(f"Created indices with {len(all_samples)} total samples across {len(cluster_samples)} clusters")
+        
+        # Set up file mapping for the current instance
+        self.file_mapping = {int(k): os.path.join(self.data_path, v) for k, v in file_mapping.items()}
+        
+        return cluster_index
+    
+    def _create_file_mapping(self, indices_dir, data_path):
+        """
+        Create file mapping if it doesn't exist.
+        
+        Args:
+            indices_dir: Directory to save index files
+            data_path: Base directory for data files
+            
+        Returns:
+            dict: The file mapping with full paths
+        """
+        # Create output directory if it doesn't exist
+        os.makedirs(indices_dir, exist_ok=True)
+        
+        # Get all parquet files in the data path
+        parquet_files = glob.glob(os.path.join(data_path, "*.parquet"))
+        
+        if not parquet_files:
+            raise ValueError(f"No parquet files found in {data_path}")
+        
+        # Create file mapping
+        file_mapping = {
+            i: os.path.relpath(file_path, data_path) for i, file_path in enumerate(parquet_files)
+        }
+        
+        # Save file mapping
+        with open(os.path.join(indices_dir, 'file_mapping.json'), 'w') as f:
+            json.dump(file_mapping, f, indent=2)
+        
+        # Return file mapping with full paths
+        return {int(k): os.path.join(data_path, v) for k, v in file_mapping.items()} 

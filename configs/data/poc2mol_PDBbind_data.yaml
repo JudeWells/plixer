@@ -6,7 +6,14 @@ config:
   _target_: src.data.common.voxelization.config.Poc2MolDataConfig 
   remove_hydrogens: true
   batch_size: 32
-  target_samples_per_batch: 128
+  protein_channel_indices: [0, 1, 2, 3]
+  ligand_channel_indices: [4, 5, 6, 7, 8, 9, 10, 11, 12]
+  fnames: null
+  vox_size: 0.75
+  box_dims: [ 24.0, 24.0, 24.0 ]
+  random_rotation: true
+  random_translation: 6.0
+  has_protein: true
   ligand_channel_names:
     - carbon
     - oxygen
@@ -22,14 +29,6 @@ config:
     - oxygen
     - nitrogen
     - sulfur
-  fnames: null 
-  protein_channel_indices: [0, 1, 2, 3]
-  ligand_channel_indices: [4, 5, 6, 7, 8, 9, 10, 11, 12]
-  vox_size: 0.75
-  box_dims: [ 24.0, 24.0, 24.0 ]
-  random_rotation: true
-  random_translation: 6.0
-  has_protein: true
   protein_channels:
     0: [ "C" ]
     1: [ "O" ]
@@ -45,4 +44,5 @@ config:
     6: [ "I" ]
     7: [ "Br" ]
     8: [ "C", "H", "O", "N", "S", "Cl", "F", "I", "Br" ]
+  max_atom_dist: 32.0
   dtype: ${oc.select:torch.float16,torch.float16}

@@ -21,7 +21,7 @@ sys.path.insert(0, project_root)
 from src.models.poc2mol import Poc2Mol, ResUnetConfig
 from src.models.vox2smiles import VoxToSmilesModel
 from src.data.poc2mol.data_module import ComplexDataModule
-from src.data.vox2smiles.data_module import VoxMilesDataModule
+from src.data.vox2smiles.data_module import Vox2SmilesDataModule
 from src.data.vox2smiles.datasets import Poc2MolOutputDataset, CombinedDataset
 from src.data.common.voxelization.config import Poc2MolDataConfig, Vox2SmilesDataConfig
 
@@ -34,14 +34,14 @@ def parse_args():
     parser.add_argument("--vox2smiles_checkpoint", type=str, required=True, help="Path to Vox2Smiles checkpoint")
     parser.add_argument("--pdb_dir", type=str, required=True, help="Path to PDB directory")
     parser.add_argument("--val_pdb_dir", type=str, required=True, help="Path to validation PDB directory")
-    parser.add_argument("--voxmiles_data_path", type=str, required=True, help="Path to VoxMiles data")
+    parser.add_argument("--vox2smiles_data_path", type=str, required=True, help="Path to Vox2Smiles data")
     parser.add_argument("--output_dir", type=str, required=True, help="Path to output directory")
     
     # Training parameters
     parser.add_argument("--batch_size", type=int, default=16, help="Batch size")
     parser.add_argument("--lr", type=float, default=1e-5, help="Learning rate")
     parser.add_argument("--max_epochs", type=int, default=10, help="Maximum number of epochs")
-    parser.add_argument("--ratio", type=float, default=0.5, help="Ratio of Poc2Mol outputs to VoxMiles data")
+    parser.add_argument("--ratio", type=float, default=0.5, help="Ratio of Poc2Mol outputs to Vox2Smiles data")
     parser.add_argument("--seed", type=int, default=42, help="Random seed")
     
     return parser.parse_args()
@@ -122,9 +122,9 @@ def main():
         val_pdb_dir=args.val_pdb_dir,
     )
     
-    vox2smiles_data_module = VoxMilesDataModule(
+    vox2smiles_data_module = Vox2SmilesDataModule(
         config=vox2smiles_config,
-        data_path=args.voxmiles_data_path,
+        data_path=args.vox2smiles_data_path,
     )
     
     # Set up data modules
@@ -141,7 +141,7 @@ def main():
     
     combined_dataset = CombinedDataset(
         poc2mol_output_dataset=poc2mol_output_dataset,
-        voxmiles_dataset=vox2smiles_data_module.train_dataset,
+        vox2smiles_dataset=vox2smiles_data_module.train_dataset,
         ratio=args.ratio,
     )
     

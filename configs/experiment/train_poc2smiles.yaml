@@ -1,5 +1,0 @@
-defaults:
-  - _self_
-  - override /data: poc2smiles_data
-  - override /model: poc2smiles
-  - override /logger: wandb.yaml

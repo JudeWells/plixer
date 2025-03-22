@@ -42,7 +42,7 @@ def get_collate_function(tokenizer):
     return collate_fn
 
 
-class VoxMilesDataset(Dataset):
+class Vox2SmilesDataset(Dataset):
     """
     Dataset for voxelized molecules with SMILES strings.
     Loads RDKit molecules from pickle files, voxelizes them, and pairs them with SMILES strings.
@@ -138,7 +138,7 @@ from src.data.common.voxelization.config import Vox2SmilesDataConfig
 from src.data.common.voxelization.molecule_utils import voxelize_molecule
 
 
-class ParquetVoxMilesDataset(Dataset):
+class ParquetVox2SmilesDataset(Dataset):
     """
     Dataset for voxelized molecules with SMILES strings loaded from parquet files.
     Each parquet file contains multiple molecules, allowing efficient storage and loading.
@@ -179,18 +179,16 @@ class ParquetVoxMilesDataset(Dataset):
         
         for file_path in self.file_list:
             # Just read the metadata to get row count (faster than loading data)
-            df = pd.read_parquet(file_path, columns=[])
+            df = pd.read_parquet(file_path, columns=['source_file'])
             file_size = len(df)
             self.file_sizes.append(file_size)
             self.total_molecules += file_size
         
-        # Create a mapping from molecule index to file index and row index
         self.molecule_map = []
         for file_idx, size in enumerate(self.file_sizes):
             for row_idx in range(size):
                 self.molecule_map.append((file_idx, row_idx))
         print(f"Molecule file index created with {len(self.molecule_map)} molecules")
-        # Set up a simple cache to avoid reloading the same file multiple times
         self.cache = {}
         self.cache_size = cache_size
 
@@ -372,26 +370,26 @@ class CombinedDataset(Dataset):
     def __init__(
         self,
         poc2mol_output_dataset,
-        voxmiles_dataset,
+        vox2smiles_dataset,
         ratio=0.5, # probability of poc2mol
         max_poc2mol_loss=1.2, # worst loss tolerated to train on poc2mol
     ):
         self.poc2mol_output_dataset = poc2mol_output_dataset
-        self.voxmiles_dataset = voxmiles_dataset
+        self.vox2smiles_dataset = vox2smiles_dataset
         self.ratio = ratio
         self.max_poc2mol_loss = max_poc2mol_loss
         # Calculate the number of samples from each dataset
         self.n_poc2mol = len(poc2mol_output_dataset)
-        self.n_voxmiles = len(voxmiles_dataset)
+        self.n_vox2smiles = len(vox2smiles_dataset)
         
         # Calculate the total number of samples
-        self.n_total = self.n_poc2mol + self.n_voxmiles
+        self.n_total = self.n_poc2mol + self.n_vox2smiles
         print(f"Total number of samples: {self.n_total}")
         print(f"Number of Poc2Mol samples: {self.n_poc2mol}")
-        print(f"Number of Vox2Smiles samples: {self.n_voxmiles}")
+        print(f"Number of Vox2Smiles samples: {self.n_vox2smiles}")
         # Calculate the probability of selecting a sample from each dataset
         self.p_poc2mol = self.n_poc2mol / self.n_total
-        self.p_voxmiles = self.n_voxmiles / self.n_total
+        self.p_vox2smiles = self.n_vox2smiles / self.n_total
 
     def __len__(self):
         return self.n_total
@@ -409,9 +407,9 @@ class CombinedDataset(Dataset):
             if result['poc2mol_loss'] < self.max_poc2mol_loss:
                 return result
             else:
-                return self.voxmiles_dataset[idx % self.n_voxmiles]
+                return self.vox2smiles_dataset[idx % self.n_vox2smiles]
         else:
             # Sample from Vox2Smiles dataset
-            idx_voxmiles = idx % self.n_voxmiles
-            result = self.voxmiles_dataset[idx_voxmiles]
+            idx_vox2smiles = idx % self.n_vox2smiles
+            result = self.vox2smiles_dataset[idx_vox2smiles]
             return result

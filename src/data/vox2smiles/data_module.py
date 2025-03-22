@@ -5,10 +5,10 @@ from torch.utils.data import DataLoader
 
 from src.data.common.voxelization.config import Vox2SmilesDataConfig
 from src.data.common.tokenizers.smiles_tokenizer import build_smiles_tokenizer
-from src.data.vox2smiles.datasets import VoxMilesDataset, get_collate_function
+from src.data.vox2smiles.datasets import Vox2SmilesDataset, get_collate_function
 
 
-class VoxMilesDataModule(LightningDataModule):
+class Vox2SmilesDataModule(LightningDataModule):
     """
     Lightning data module for voxelized molecules with SMILES strings.
     """
@@ -28,15 +28,10 @@ class VoxMilesDataModule(LightningDataModule):
         self.val_split = val_split
         self.test_split = test_split
         
-        # Store provided datasets
         self.train_dataset_provided = train_dataset
         self.val_dataset_provided = val_dataset
         self.test_dataset_provided = test_dataset
-        
-        # Build the tokenizer
         self.tokenizer = build_smiles_tokenizer()
-        
-        # Create the collate function
         self.collate_fn = get_collate_function(self.tokenizer)
 
     def setup(self, stage: Optional[str] = None):
@@ -46,7 +41,7 @@ class VoxMilesDataModule(LightningDataModule):
             if self.train_dataset_provided is not None:
                 self.train_dataset = self.train_dataset_provided
             else:
-                self.train_dataset = VoxMilesDataset(
+                self.train_dataset = Vox2SmilesDataset(
                     data_path=f"{self.data_path}/train",
 
                     config=self.config,
@@ -57,7 +52,7 @@ class VoxMilesDataModule(LightningDataModule):
             if self.val_dataset_provided is not None:
                 self.val_dataset = self.val_dataset_provided
             else:
-                self.val_dataset = VoxMilesDataset(
+                self.val_dataset = Vox2SmilesDataset(
                     data_path=f"{self.data_path}/val_5k",
                     config=self.config,
                     random_rotation=False,  # No rotation for validation
@@ -68,7 +63,7 @@ class VoxMilesDataModule(LightningDataModule):
             if self.test_dataset_provided is not None:
                 self.test_dataset = self.test_dataset_provided
             else:
-                self.test_dataset = VoxMilesDataset(
+                self.test_dataset = Vox2SmilesDataset(
                     data_path=f"{self.data_path}/test",
                     config=self.config,
                     random_rotation=False,  # No rotation for testing
