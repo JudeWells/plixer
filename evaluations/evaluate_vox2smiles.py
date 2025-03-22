@@ -495,7 +495,7 @@ def main(args):
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Evaluate vox2smiles model")
     parser.add_argument("--checkpoint", type=str, 
-                        default="logs/vox2smilesCombined/runs/2025-03-06_09-11-10/checkpoints/interrupted.ckpt",
+                        default="logs/vox2smilesZinc/runs/2025-03-04_15-55-56/checkpoints/last.ckpt",
                         help="Path to model checkpoint")
     parser.add_argument("--molecule", type=str, 
                         default="data/5sry_no_hydrogens.mol2",
@@ -507,7 +507,7 @@ if __name__ == "__main__":
                         default="configs/data/vox2smiles_geom_data.yaml",
                         help="Path to data config file")
     parser.add_argument("--output-dir", type=str, 
-                        default="vox2smiles_evaluation2",
+                        default="outputs/vox2smiles_evaluation_non_combined_model",
                         help="Directory to save output files")
     parser.add_argument("--num-samples", type=int, 
                         default=10,
