@@ -103,7 +103,7 @@ class Poc2Mol(LightningModule):
         outputs, loss = self(batch["protein"], labels=batch["ligand"])
         self.log("train/loss", loss, on_step=False, on_epoch=True, prog_bar=True)
         self.log("train/batch_loss", loss, on_step=True, on_epoch=False, prog_bar=True)
-        self.log_batch_statistics(batch)
+        self.log_channel_means(batch, outputs)
         return loss
 
     def validation_step(self, batch, batch_idx):
@@ -171,12 +171,15 @@ class Poc2Mol(LightningModule):
             checkpoint["optimizer_states"] = []
             checkpoint["lr_schedulers"] = []
     
-    def log_batch_statistics(self, batch):
+    def log_channel_means(self, batch, outputs):
         n_lig_channels = batch['ligand'].shape[1]
         self.log_dict({
-            f"channel_mean/ligand_{channel}": batch['ligand'][:,channel,...].mean() for channel in range(n_lig_channels)
+            f"channel_mean/ligand_{channel}": batch['ligand'][:,channel,...].mean().detach().item() for channel in range(n_lig_channels)
             })
+        self.log_dict({
+            f"channel_mean/pred_ligand_{channel}": outputs[:,channel,...].mean().detach().item() for channel in range(n_lig_channels)
+        })
         n_prot_channels = batch['protein'].shape[1]
         self.log_dict({
-            f"channel_mean/protein_{channel}": batch['protein'][:,channel,...].mean() for channel in range(n_prot_channels)
+            f"channel_mean/protein_{channel}": batch['protein'][:,channel,...].mean().detach().item() for channel in range(n_prot_channels)
         })

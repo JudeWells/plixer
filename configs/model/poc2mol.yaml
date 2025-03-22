@@ -18,8 +18,8 @@ config:
     name: BCEDiceLoss
     weight: null
     normalization: null
-    alpha: 0.2 # BCE weight
-    beta: 1 # DICE weight
+    alpha: 1.0 # BCE weight
+    beta: 1.0 # DICE weight
 matmul_precision: 'high'
 lr: 1e-3
 scheduler_name: constant_with_warmup
