@@ -1,7 +1,7 @@
 # @package _global_
 defaults:
   - _self_
-  - override /data: poc2mol_data
+  - override /data: poc2mol_PDBbind_data
   - override /model: poc2mol
   - override /logger: wandb.yaml
   - override /callbacks: default
@@ -34,4 +34,4 @@ trainer:
   val_check_interval: 10
   check_val_every_n_epoch: 1
 
-ckpt_path: "/mnt/disk2/VoxelDiffOuter/VoxelDiff2/logs/poc2mol/runs/2025-03-08_22-55-11/checkpoints/last.ckpt"
+ckpt_path: null #"/mnt/disk2/VoxelDiffOuter/VoxelDiff2/logs/poc2mol/runs/2025-03-08_22-55-11/checkpoints/last.ckpt"
