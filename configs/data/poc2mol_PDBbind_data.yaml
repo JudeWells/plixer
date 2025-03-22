@@ -3,7 +3,8 @@ pdb_dir: ../PDBbind_v2020_refined-set
 val_pdb_dir: ../validation_PDBbind
 num_workers: 0
 config:
-  _target_: src.data.common.voxelization.config.Poc2MolDataConfig
+  _target_: src.data.common.voxelization.config.Poc2MolDataConfig 
+  remove_hydrogens: true
   batch_size: 32
   protein_channel_indices: [0, 1, 2, 3]
   ligand_channel_indices: [4, 5, 6, 7, 8, 9, 10, 11, 12]
