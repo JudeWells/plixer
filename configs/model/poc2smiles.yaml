@@ -14,12 +14,11 @@ poc2mol:
     _target_: src.models.poc2mol.ResUnetConfig
     in_channels: 6
     out_channels: 10
-    final_sigmoid: False
+    final_sigmoid: false
     f_maps: 64
     layer_order: 'gcr'
     num_groups: 8
     num_levels: 5
-    is_segmentation: True
     conv_padding: 1
     conv_upscale: 2
     upsample: default

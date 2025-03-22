@@ -18,12 +18,11 @@ class ResUnetConfig:
         self,
         in_channels: int = 1,
         out_channels: int = 2,
-        final_sigmoid: bool = True,
+        final_sigmoid: bool = False,
         f_maps: int = 64,
         layer_order: str = 'gcr',
         num_groups: int = 8,
         num_levels: int = 5,
-        is_segmentation: bool = True,
         conv_padding: int = 1,
         conv_upscale: int = 2,
         upsample: str = 'default',
@@ -38,7 +37,6 @@ class ResUnetConfig:
         self.layer_order = layer_order
         self.num_groups = num_groups
         self.num_levels = num_levels
-        self.is_segmentation = is_segmentation
         self.conv_padding = conv_padding
         self.conv_upscale = conv_upscale
         self.upsample = upsample
@@ -74,14 +72,14 @@ class Poc2Mol(LightningModule):
             layer_order=config.layer_order,
             num_groups=config.num_groups,
             num_levels=config.num_levels,
-            is_segmentation=config.is_segmentation,
             conv_padding=config.conv_padding,
             conv_upscale=config.conv_upscale,
             upsample=config.upsample,
             dropout_prob=config.dropout_prob,
             basic_module=config.basic_module,
         )
-        self.loss = get_loss_criterion(loss)
+        with_logits = not config.final_sigmoid
+        self.loss = get_loss_criterion(loss, with_logits=with_logits)
         self.lr = lr
         self.weight_decay = weight_decay
         self.scheduler_name = scheduler_name
@@ -103,6 +101,13 @@ class Poc2Mol(LightningModule):
             self.log("train/load_time", batch["load_time"].mean(), on_step=True, on_epoch=False, prog_bar=True)
         outputs = self(batch["protein"], labels=batch["ligand"])
         loss = self.loss(outputs, batch["ligand"])
+        if isinstance(loss, dict):
+            running_loss = 0
+            for k,v in loss.items():
+                self.log(f"train/{k}", v, on_step=False, on_epoch=True, prog_bar=False)
+                self.log(f"train/batch_{k}", v, on_step=True, on_epoch=False, prog_bar=False)
+                running_loss += v
+            loss = running_loss
         self.log("train/loss", loss, on_step=False, on_epoch=True, prog_bar=True)
         self.log("train/batch_loss", loss, on_step=True, on_epoch=False, prog_bar=True)
         self.log_channel_means(batch, outputs),
@@ -115,6 +120,12 @@ class Poc2Mol(LightningModule):
     def validation_step(self, batch, batch_idx):
         outputs = self(batch["protein"], labels=batch["ligand"])
         loss = self.loss(outputs, batch["ligand"])
+        if isinstance(loss, dict):
+            running_loss = 0
+            for k,v in loss.items():
+                self.log(f"val/{k}", v, on_step=False, on_epoch=True, prog_bar=False)
+                running_loss += v
+            loss = running_loss
         save_dir = f"{self.img_save_dir}/val"
         if self.visualise_val and batch_idx in [0, 50, 100]:
             lig, pred, names = batch["ligand"][:4], outputs[:4], batch["name"][:4]

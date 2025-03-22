@@ -72,7 +72,6 @@ def main():
             layer_order=poc2mol_config.config.layer_order,
             num_groups=poc2mol_config.config.num_groups,
             num_levels=poc2mol_config.config.num_levels,
-            is_segmentation=poc2mol_config.config.is_segmentation,
             conv_padding=poc2mol_config.config.conv_padding,
             conv_upscale=poc2mol_config.config.conv_upscale,
             upsample=poc2mol_config.config.upsample,

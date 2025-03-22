@@ -3,12 +3,11 @@ config:
   _target_: src.models.poc2mol.ResUnetConfig
   in_channels: 4
   out_channels: 9
-  final_sigmoid: true
+  final_sigmoid: false
   f_maps: 64
   layer_order: 'gcr'
   num_groups: 8
   num_levels: 5
-  is_segmentation: true
   conv_padding: 1
   conv_upscale: 2
   upsample: default
@@ -17,7 +16,7 @@ config:
 loss:
   name: BCEDiceLoss
   weight: null
-  normalization: null
+  normalization: sigmoid # which normalization to apply before DICE loss
   alpha: 1.0 # BCE weight
   beta: 1.0 # DICE weight
 matmul_precision: 'high'
