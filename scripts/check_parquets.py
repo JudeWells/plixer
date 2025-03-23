@@ -47,9 +47,9 @@ def check_parquet_directory(directory_path):
 def main():
     # Directories to check
     directories = [
-        "/mnt/disk2/VoxelDiffOuter/PDBbind_v2020_refined_set_mol_parquets",
-        "/mnt/disk2/zinc20_parquet",
-        "/mnt/disk2/VoxelDiffOuter/geom/rdkit_folder/drugs/train_parquet_v2"
+        "../PDBbind_v2020_refined_set_mol_parquets",
+        "../zinc20_parquet",
+        "../geom/rdkit_folder/drugs/train_parquet_v2"
     ]
     
     print("Checking parquet files in specified directories...")

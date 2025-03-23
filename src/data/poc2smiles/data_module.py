@@ -9,8 +9,30 @@ from torch.utils.data import DataLoader, Dataset
 from src.data.common.voxelization.config import Poc2MolDataConfig, Vox2SmilesDataConfig
 from src.data.common.tokenizers.smiles_tokenizer import build_smiles_tokenizer
 from src.data.poc2mol.datasets import ComplexDataset
-from src.data.vox2smiles.datasets import get_collate_function
 
+
+
+def collate_fn(batch):
+    # Collate protein and ligand voxels
+    protein_voxels = torch.stack([item["protein"] for item in batch])
+    ligand_voxels = torch.stack([item["ligand"] for item in batch])
+    
+    # Collate SMILES data
+    smiles = torch.stack([item["smiles"] for item in batch])
+    smiles_attention_mask = torch.stack([item["smiles_attention_mask"] for item in batch])
+    smiles_str = [item["smiles_str"] for item in batch]
+    
+    # Collate names
+    names = [item["name"] for item in batch]
+    
+    return {
+        "protein": protein_voxels,
+        "ligand": ligand_voxels,
+        "smiles": smiles,
+        "smiles_attention_mask": smiles_attention_mask,
+        "smiles_str": smiles_str,
+        "name": names
+    }
 
 class ProteinLigandSmilesDataset(Dataset):
     """
@@ -119,35 +141,7 @@ class ProteinLigandSmilesDataModule(LightningDataModule):
         self.tokenizer = build_smiles_tokenizer()
         
         # Create the collate function
-        self.collate_fn = self._get_collate_function()
-
-    def _get_collate_function(self):
-        """
-        Create a collate function for the dataset.
-        """
-        def collate_fn(batch):
-            # Collate protein and ligand voxels
-            protein_voxels = torch.stack([item["protein"] for item in batch])
-            ligand_voxels = torch.stack([item["ligand"] for item in batch])
-            
-            # Collate SMILES data
-            smiles = torch.stack([item["smiles"] for item in batch])
-            smiles_attention_mask = torch.stack([item["smiles_attention_mask"] for item in batch])
-            smiles_str = [item["smiles_str"] for item in batch]
-            
-            # Collate names
-            names = [item["name"] for item in batch]
-            
-            return {
-                "protein": protein_voxels,
-                "ligand": ligand_voxels,
-                "smiles": smiles,
-                "smiles_attention_mask": smiles_attention_mask,
-                "smiles_str": smiles_str,
-                "name": names
-            }
-        
-        return collate_fn
+        self.collate_fn = collate_fn
 
     def setup(self, stage: Optional[str] = None):
         """Set up the datasets for each stage."""

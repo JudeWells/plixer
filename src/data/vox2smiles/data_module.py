@@ -20,7 +20,8 @@ class Vox2SmilesDataModule(LightningDataModule):
         test_split: float = 0.1,
         train_dataset = None,
         val_dataset = None,
-        test_dataset = None
+        test_dataset = None,
+        num_workers = 0
     ):
         super().__init__()
         self.config = config
@@ -33,6 +34,7 @@ class Vox2SmilesDataModule(LightningDataModule):
         self.test_dataset_provided = test_dataset
         self.tokenizer = build_smiles_tokenizer()
         self.collate_fn = get_collate_function(self.tokenizer)
+        self.num_workers = num_workers
 
     def setup(self, stage: Optional[str] = None):
         """Set up the datasets for each stage."""
@@ -76,10 +78,10 @@ class Vox2SmilesDataModule(LightningDataModule):
             self.train_dataset,
             batch_size=self.config.batch_size,
             shuffle=True,
-            num_workers=self.config.num_workers,
+            num_workers=self.num_workers,
             collate_fn=self.collate_fn,
             pin_memory=False,
-            persistent_workers=True if self.config.num_workers > 0 else False,
+            persistent_workers=True if self.num_workers > 0 else False,
         )
 
     def val_dataloader(self):
@@ -88,10 +90,10 @@ class Vox2SmilesDataModule(LightningDataModule):
             self.val_dataset,
             batch_size=self.config.batch_size,
             shuffle=False,
-            num_workers=self.config.num_workers,
+            num_workers=self.num_workers,
             collate_fn=self.collate_fn,
             pin_memory=False,
-            persistent_workers=True if self.config.num_workers > 0 else False,
+            persistent_workers=True if self.num_workers > 0 else False,
         )
 
     def test_dataloader(self):
@@ -100,8 +102,8 @@ class Vox2SmilesDataModule(LightningDataModule):
             self.test_dataset,
             batch_size=self.config.batch_size,
             shuffle=False,
-            num_workers=self.config.num_workers,
+            num_workers=self.num_workers,
             collate_fn=self.collate_fn,
             pin_memory=False,
-            persistent_workers=True if self.config.num_workers > 0 else False,
+            persistent_workers=True if self.num_workers > 0 else False,
         ) 

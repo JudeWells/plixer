@@ -88,10 +88,10 @@ def save_molecules_to_parquet(molecules, output_dir, batch_idx):
 def main():
     parser = argparse.ArgumentParser(description='Process ZINC20 mol2 files into parquet format')
     parser.add_argument('--input_dir', type=str, 
-                        default="/mnt/disk2/zinc20", 
+                        default="../zinc20", 
                         help='Directory containing ZINC20 mol2.gz files')
     parser.add_argument('--output_dir', type=str, 
-                        default="/mnt/disk2/zinc20_parquet", 
+                        default="../zinc20_parquet", 
                         help='Directory to save parquet files')
     parser.add_argument('--max_files', type=int, default=None, help='Maximum number of mol2.gz files to process')
     parser.add_argument('--max_mols_per_batch', type=int, default=10000, 
