@@ -28,6 +28,6 @@ python ${ROOT_DIR}/src/train.py \
 +experiment=train_poc2mol_plinder \
 task_name="poc2molPlinder" \
 ckpt_path=null \
-data.config.batch_size=12
+data.config.batch_size=2
 
 date
