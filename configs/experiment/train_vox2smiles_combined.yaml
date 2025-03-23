@@ -7,11 +7,11 @@ defaults:
   - override /logger: wandb.yaml
 
 task_name: "vox2smilesZincAndPoc2MolOutputs"
-tags: ["dev", "resume_from_ckpt"]
+tags: ["combined_data", "resume_from_ckpt"]
 train: True
 test: True
 optimized_metric: "val/loss"
-ckpt_path: "/mnt/disk2/VoxelDiffOuter/vox2smiles/logs/vox_to_smiles/runs/2025-03-02_23-37-11/checkpoints/last.ckpt"
+ckpt_path: null
 seed: 42
 
 logger:

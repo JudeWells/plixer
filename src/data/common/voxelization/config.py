@@ -22,35 +22,32 @@ class VoxelizationConfig:
     
     # Channel names for better interpretability
     ligand_channel_names: List[str] = field(default_factory=lambda: [
-        "carbon", "hydrogen", "oxygen", "nitrogen", "sulfur", 
-        "chlorine", "fluorine", "iodine", "bromine", "all"
+        "carbon", "oxygen", "nitrogen", "sulfur", 
+        "chlorine", "fluorine", "iodine", "bromine", "other"
     ])
     
     protein_channel_names: List[str] = field(default_factory=lambda: [
-        "carbon", "hydrogen", "oxygen", "nitrogen", "sulfur", "all"
+        "carbon", "oxygen", "nitrogen", "sulfur"
     ])
     
     # Channel mappings (which elements go into which channel)
     protein_channels: Dict[int, List[str]] = field(default_factory=lambda: {
         0: ["C"],
-        1: ["H"],
-        2: ["O"],
-        3: ["N"],
-        4: ["S"],
-        5: ["C", "H", "O", "N", "S"]
+        1: ["O"],
+        2: ["N"],
+        3: ["S"],
     })
     
     ligand_channels: Dict[int, List[str]] = field(default_factory=lambda: {
         0: ["C"],
-        1: ["H"],
-        2: ["O"],
-        3: ["N"],
-        4: ["S"],
-        5: ["Cl"],
-        6: ["F"],
-        7: ["I"],
-        8: ["Br"],
-        9: ["C", "H", "O", "N", "S", "Cl", "F", "I", "Br"]
+        1: ["O"],
+        2: ["N"],
+        3: ["S"],
+        4: ["Cl"],
+        5: ["F"],
+        6: ["I"],
+        7: ["Br"],
+        8: ["C", "H", "O", "N", "S", "Cl", "F", "I", "Br"]
     })
     
     # Maximum atom distance from ligand center (for pruning distant atoms)
@@ -87,7 +84,6 @@ class Vox2SmilesDataConfig(VoxelizationConfig):
     Extends the base VoxelizationConfig with Vox2Smiles-specific parameters.
     """
     batch_size: int = 24
-    num_workers: int = 0
     max_smiles_len: int = 200
     
     # For Vox2Smiles, we typically don't need protein channels

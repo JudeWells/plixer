@@ -5,6 +5,7 @@ import numpy as np
 from rdkit import Chem
 import torch
 from torch.utils.data import Dataset
+from transformers import DataCollatorWithPadding
 
 from src.data.common.tokenizers.smiles_tokenizer import build_smiles_tokenizer
 from src.data.common.voxelization.config import Vox2SmilesDataConfig
@@ -20,7 +21,6 @@ def get_collate_function(tokenizer):
     Create a collate function for the Vox2Smiles dataset.
     This function handles batching of voxelized molecules and tokenized SMILES strings.
     """
-    from transformers import DataCollatorWithPadding
     
     smiles_collator = DataCollatorWithPadding(tokenizer=tokenizer)
     
@@ -167,22 +167,23 @@ class ParquetVox2SmilesDataset(Dataset):
         # Load the index file which lists all parquet files
         index_path = os.path.join(data_path, index_file)
         if os.path.exists(index_path):
-            self.file_list = pd.read_csv(index_path)['parquet_file'].tolist()
+            df = pd.read_csv(index_path)
+            self.file_list = df['parquet_file'].tolist()
+            self.file_sizes = df['file_size'].tolist()
+            self.total_molecules = sum(self.file_sizes)
         else:
             print("Indexing molecule files")
             self.file_list = glob.glob(os.path.join(data_path, "**.parquet"))
             print(f"Found {len(self.file_list)} parquet files")
-        
-        # Get the number of molecules in each file
-        self.file_sizes = []
-        self.total_molecules = 0
-        
-        for file_path in self.file_list:
-            # Just read the metadata to get row count (faster than loading data)
-            df = pd.read_parquet(file_path, columns=['source_file'])
-            file_size = len(df)
-            self.file_sizes.append(file_size)
-            self.total_molecules += file_size
+            self.file_sizes = []
+            self.total_molecules = 0
+            for file_path in self.file_list:
+                # Just read the metadata to get row count (faster than loading data)
+                df = pd.read_parquet(file_path, columns=['source_file'])
+                file_size = len(df)
+                self.file_sizes.append(file_size)
+                self.total_molecules += file_size
+            pd.DataFrame({"parquet_file": self.file_list, "file_size": self.file_sizes}).to_csv(index_path, index=False)
         
         self.molecule_map = []
         for file_idx, size in enumerate(self.file_sizes):
@@ -332,11 +333,21 @@ class Poc2MolOutputDataset(Dataset):
         smiles_str = complex_data['smiles']
         # Generate a predicted ligand voxel using Poc2Mol
         with torch.no_grad():
-            predicted_ligand_voxel, loss = self.poc2mol_model(
+            predicted_ligand_voxel = self.poc2mol_model(
                 protein_voxel.unsqueeze(0),
                 labels=ground_truth_ligand_voxel.unsqueeze(0)
             )
-            predicted_ligand_voxel = predicted_ligand_voxel.squeeze(0)
+            loss = self.poc2mol_model.loss(
+                predicted_ligand_voxel, ground_truth_ligand_voxel.unsqueeze(0)
+
+            )
+            
+            if isinstance(loss, dict):
+                running_loss = 0
+                for k,v in loss.items():
+                    running_loss += v
+                loss = running_loss
+            predicted_ligand_voxel = torch.sigmoid(predicted_ligand_voxel.squeeze(0))
             # Move the tensor to CPU to avoid pin_memory issues
             predicted_ligand_voxel = predicted_ligand_voxel
         

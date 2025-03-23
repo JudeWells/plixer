@@ -8,3 +8,4 @@ vox2smiles_evaluation*/
 qsub_logs/
 outputs/
 evaluation_results/
+nohup.out
