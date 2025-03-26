@@ -51,7 +51,7 @@ class CombinedProteinToSmilesModel(L.LightningModule):
         
         self.override_optimizer_on_load = override_optimizer_on_load
     
-    def forward(self, protein_voxels):
+    def forward(self, protein_voxels, labels=None, decoy_labels=None):
         """
         Forward pass through the combined model.
         
@@ -65,15 +65,22 @@ class CombinedProteinToSmilesModel(L.LightningModule):
         """
         # Generate ligand voxels from protein voxels
         poc2mol_output = self.poc2mol_model(protein_voxels)
-        ligand_voxels = poc2mol_output["ligand_voxels"]
+        poc2mol_output = torch.sigmoid(poc2mol_output)
         
-        # Generate SMILES from ligand voxels
-        vox2smiles_output = self.vox2smiles_model(ligand_voxels)
-        
-        return {
+        vox2smiles_output = self.vox2smiles_model(poc2mol_output, labels=labels)
+        sampled_smiles = self.vox2smiles_model.generate_smiles(poc2mol_output)
+        result = {
             "logits": vox2smiles_output["logits"],
-            "ligand_voxels": ligand_voxels,
+            "predicted_ligand_voxels": poc2mol_output,
+            "sampled_smiles": sampled_smiles,
+            "loss": vox2smiles_output['loss']
         }
+        
+        if decoy_labels is not None:
+            vox2smiles_output_decoy_loss = self.vox2smiles_model(poc2mol_output, labels=decoy_labels)['loss']
+            result['decoy_loss'] = vox2smiles_output_decoy_loss
+
+        return result
     
     def training_step(self, batch, batch_idx):
         """

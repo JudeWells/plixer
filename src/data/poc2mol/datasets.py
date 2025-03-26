@@ -57,8 +57,8 @@ class ComplexDataset(Dataset):
         self.ligand_channel_indices = config.ligand_channel_indices
         self.protein_channel_indices = config.protein_channel_indices
         
-        # Set up maximum atom distance
-        self.max_atom_dist = config.max_atom_dist
+        # Set up maximum atom distance for pruning how much of protein is voxelized
+        self.max_atom_dist = config.get('max_atom_dist', config.box_dims[0])
 
     def get_complex_paths(self):
         """Get paths to protein-ligand complexes."""
@@ -283,8 +283,8 @@ class PlinderParquetDataset(Dataset):
         self.ligand_channel_indices = config.ligand_channel_indices
         self.protein_channel_indices = config.protein_channel_indices
         
-        # Set up maximum atom distance
-        self.max_atom_dist = config.max_atom_dist
+        # Set up maximum atom distance for pruning how much of protein is voxelized
+        self.max_atom_dist = config.get('max_atom_dist', config.box_dims[0])
         
         # Set up LRU cache for parquet dataframes
         self.cache_size = cache_size
@@ -351,10 +351,10 @@ class PlinderParquetDataset(Dataset):
         try:
             # Check if we have the new format columns
             if 'protein_coords' in row and 'ligand_coords' in row:
-                protein_coords = torch.tensor(row['protein_coords'], dtype=torch.float16).reshape(
+                protein_coords = torch.tensor(row['protein_coords'], dtype=self.config.dtype).reshape(
                     list(row['protein_coords_shape'])
                     )
-                ligand_coords = torch.tensor(row['ligand_coords'], dtype=torch.float16).reshape(
+                ligand_coords = torch.tensor(row['ligand_coords'], dtype=self.config.dtype).reshape(
                     list(row['ligand_coords_shape'])
                 )
                 

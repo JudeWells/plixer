@@ -3,7 +3,7 @@ from importlib.util import find_spec
 from typing import Any, Callable, Dict, Optional, Tuple
 import os
 import yaml
-
+import torch
 from omegaconf import DictConfig
 
 from src.utils import pylogger, rich_utils
@@ -128,3 +128,30 @@ def get_config_from_cpt_path(cpt_path: str) -> DictConfig:
     with open(config_path, 'r') as f:
         config = yaml.safe_load(f)
     return DictConfig(config)
+
+def build_combined_model_from_config(
+        config: DictConfig, 
+        vox2smiles_ckpt_path: str,
+        dtype: torch.dtype,
+        device: torch.device
+    ):
+    from src.models.poc2mol import Poc2Mol
+    from src.models.vox2smiles import VoxToSmilesModel
+    from src.models.poc2smiles import CombinedProteinToSmilesModel
+
+    poc2mol_output_dataset_config = config['data']['train_dataset']['poc2mol_output_dataset']
+    poc2mol_config = poc2mol_output_dataset_config['poc2mol_model']
+    poc2mol_model = Poc2Mol.load_from_checkpoint(poc2mol_output_dataset_config['ckpt_path'])
+
+    vox2smiles_model = VoxToSmilesModel.load_from_checkpoint(vox2smiles_ckpt_path)
+
+    combined_model = CombinedProteinToSmilesModel(
+        poc2mol_model=poc2mol_model,
+        vox2smiles_model=vox2smiles_model,
+        config=config
+    )
+
+    combined_model = combined_model.to(dtype)
+    combined_model.to(device)
+    return combined_model
+    

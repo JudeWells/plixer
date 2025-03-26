@@ -315,7 +315,7 @@ class Poc2MolOutputDataset(Dataset):
             else:
                 # Fallback to direct loading if it's not a Lightning checkpoint
                 self.poc2mol_model.load_state_dict(checkpoint)
-        # Put the model in eval mode
+
         self.poc2mol_model.eval()
 
     def __len__(self):
@@ -350,7 +350,6 @@ class Poc2MolOutputDataset(Dataset):
             predicted_ligand_voxel = torch.sigmoid(predicted_ligand_voxel.squeeze(0))
             # Move the tensor to CPU to avoid pin_memory issues
             predicted_ligand_voxel = predicted_ligand_voxel
-        
 
         smiles_str = self.tokenizer.bos_token + smiles_str + self.tokenizer.eos_token
         

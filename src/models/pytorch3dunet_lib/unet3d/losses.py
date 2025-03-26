@@ -292,7 +292,10 @@ def get_loss_criterion(loss_config, with_logits: bool = True):
     :param config: (dict) a top level configuration object containing the 'loss' key
     :return: an instance of the loss function
     """
-    name = loss_config.pop('name')
+    if 'name' in loss_config:
+        name = loss_config.pop('name')
+    else:
+        name = 'BCEDiceLoss'
 
     ignore_index = loss_config.pop('ignore_index', None)
     skip_last_target = loss_config.pop('skip_last_target', False)

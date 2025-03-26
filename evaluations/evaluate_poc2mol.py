@@ -20,7 +20,7 @@ def parse_args():
     parser.add_argument(
         "--ckpt_path", 
         type=str, 
-        default="/mnt/disk2/VoxelDiffOuter/VoxelDiff2/logs/poc2mol_PDBbind/runs/2025-03-19_22-50-16/checkpoints/last.ckpt",
+        default="logs/vox2smilesZincAndPoc2MolOutputs/runs/2025-03-22_21-18-58/checkpoints/last.ckpt",
         help="Path to the model checkpoint"
     )
     parser.add_argument(

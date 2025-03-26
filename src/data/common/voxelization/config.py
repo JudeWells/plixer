@@ -1,10 +1,13 @@
 from dataclasses import dataclass, field
-from typing import Dict, List, Optional, Union
+from typing import Dict, List, Optional, Union, Any
 import torch
 
+class ConfigClass:
+    def get(self, key: str, default: Optional[Any] = None) -> Any:
+        return getattr(self, key, default)
 
 @dataclass
-class VoxelizationConfig:
+class VoxelizationConfig(ConfigClass):
     """
     Unified configuration for voxelization of molecules and protein-ligand complexes.
     This ensures consistent voxelization parameters across different models.
@@ -54,7 +57,7 @@ class VoxelizationConfig:
     max_atom_dist: Optional[float] = 32.0
     
     # Data type for tensors
-    dtype: torch.dtype = torch.float16
+    dtype: torch.dtype = torch.bfloat16
     remove_hydrogens: bool = True
 
 

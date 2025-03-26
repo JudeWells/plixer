@@ -4,6 +4,9 @@ import numpy as np
 import matplotlib.pyplot as plt
 import matplotlib.colors as mcolors
 import wandb
+from rdkit import Chem
+from rdkit.Chem import Draw
+import os
 
 
 def show_3d_voxel_lig_only(vox, angles=None, save_dir=None, identifier='lig'):
@@ -199,3 +202,79 @@ if __name__=="__main__":
         )
 
         break
+
+
+def visualize_2d_molecule_batch(batch_data, output_path, n_cols=3):
+    """
+    Visualizes a batch of molecules with their SMILES strings.
+    
+    Args:
+        batch_data (list): List of dictionaries containing molecule data
+        output_path (str): Path to save the output image
+        n_cols (int): Number of columns in the grid (default=3)
+    """
+    n_mols = len(batch_data)
+    n_rows = (n_mols + n_cols - 1) // n_cols  # Ceiling division
+    
+    # Create a figure with enough height to accommodate SMILES strings
+    fig, axes = plt.subplots(n_rows * 2, n_cols, figsize=(6*n_cols, 5*n_rows))
+    fig.suptitle('True vs Sampled Molecules', fontsize=16, y=0.95)
+    
+    # Flatten axes for easier indexing if there's only one row
+    if n_rows == 1:
+        axes = axes.reshape(2, -1)
+    
+    for idx, data in enumerate(batch_data):
+        row = (idx // n_cols) * 2
+        col = idx % n_cols
+        
+        # Draw true molecule
+        true_img = Draw.MolToImage(data['true_mol'], size=(400, 400))
+        axes[row, col].imshow(true_img)
+        axes[row, col].axis('off')
+        axes[row, col].set_title(f"True - {data['name']}", fontsize=12)
+        
+        # Add true SMILES string
+        true_smiles = data['true_smiles']
+        # add newline every 50 chars
+        true_smiles = '\n'.join([true_smiles[i:i+50] for i in range(0, len(true_smiles), 50)])
+        axes[row, col].text(0.5, -0.1, true_smiles, 
+                          horizontalalignment='center',
+                          verticalalignment='top',
+                          transform=axes[row, col].transAxes,
+                          fontsize=10,
+                          wrap=True)
+        
+        # Draw sampled molecule
+        sampled_img = Draw.MolToImage(data['sampled_mol'], size=(400, 400))
+        axes[row + 1, col].imshow(sampled_img)
+        axes[row + 1, col].axis('off')
+        axes[row + 1, col].set_title(f"Sampled - {data['name']}", fontsize=12)
+        
+        # Add sampled SMILES string
+        sampled_smiles = data['sampled_smiles']
+        # add newline every 50 chars
+        sampled_smiles = '\n'.join([sampled_smiles[i:i+50] for i in range(0, len(sampled_smiles), 50)])
+        axes[row + 1, col].text(0.5, -0.1, sampled_smiles,
+                               horizontalalignment='center',
+                               verticalalignment='top',
+                               transform=axes[row + 1, col].transAxes,
+                               fontsize=10,
+                               wrap=True)
+    
+    # Hide empty subplots
+    for idx in range(n_mols, n_cols * n_rows):
+        row = (idx // n_cols) * 2
+        col = idx % n_cols
+        axes[row, col].axis('off')
+        axes[row + 1, col].axis('off')
+    
+    # Adjust layout to prevent overlap
+    plt.tight_layout()
+    
+    # Create output directory if it doesn't exist
+    os.makedirs(os.path.dirname(output_path), exist_ok=True)
+    
+    # Save high-resolution figure
+    plt.savefig(output_path, dpi=300, bbox_inches='tight')
+    plt.close()

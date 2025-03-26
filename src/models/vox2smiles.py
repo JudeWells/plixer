@@ -75,7 +75,10 @@ class VoxToSmilesModel(LightningModule):
         self.override_optimizer_on_load = override_optimizer_on_load
 
     def forward(self, pixel_values, labels=None):
-        return self.model(pixel_values=pixel_values, labels=labels)
+        if labels is not None:
+            return self.model(pixel_values=pixel_values, labels=labels, return_dict=True)
+        else:
+            return self.model(pixel_values=pixel_values, return_dict=False)
 
     def training_step(self, batch, batch_idx):
         pixel_values = batch["pixel_values"]
@@ -190,18 +193,16 @@ class VoxToSmilesModel(LightningModule):
             # Set a flag to tell Lightning not to expect optimizer states
             checkpoint["optimizer_states"] = []
             checkpoint["lr_schedulers"] = []
-
+    
+    def generate_smiles(self, pixel_values, max_length=200):
+        tokens = self.model.generate(pixel_values, max_length=max_length)
+        predicted_smiles = self.tokenizer.batch_decode(tokens, skip_special_tokens=True)
+        return [sm.replace(' ', '') for sm in predicted_smiles]
 
     def visualize_smiles(self, batch, outputs):
         actual_smiles = batch["smiles_str"]
         actual_smiles = [sm.replace("[BOS]", '').replace("[EOS]", "") for sm in actual_smiles]
-
-        # Generate predictions
-        gen_output = self.model.generate(batch["pixel_values"], max_length=200)
-
-        # Decode predictions
-        predicted_smiles = self.tokenizer.batch_decode(gen_output, skip_special_tokens=True)
-        predicted_smiles = [sm.replace(' ', '') for sm in predicted_smiles]
+        predicted_smiles = self.generate_smiles(batch["pixel_values"])
 
         images_to_log = []
 
