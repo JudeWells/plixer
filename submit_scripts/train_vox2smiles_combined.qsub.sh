@@ -8,7 +8,7 @@
 #$ -l gpu_type=(a40|a100|a100_80)
 #$ -l h_rt=71:55:30
 #$ -S /bin/bash
-#$ -N vox2smiCkpt
+#$ -N vox2smiCkpt2
 #$ -t 1
 #$ -o /SAN/orengolab/nsp13/VoxelDiffOuter/VoxelDiff2/qsub_logs/
 #$ -wd /SAN/orengolab/nsp13/VoxelDiffOuter/VoxelDiff2/
@@ -29,5 +29,5 @@ python src/train.py \
 data.num_workers=0 \
 data.config.batch_size=2 \
 trainer.val_check_interval=5000 \
-ckpt_path="/SAN/orengolab/nsp13/VoxelDiffOuter/VoxelDiff2/logs/vox2smilesZincAndPoc2MolOutputs/runs/2025-03-22_21-18-58/checkpoints/last.ckpt"
+ckpt_path="/SAN/orengolab/nsp13/VoxelDiffOuter/VoxelDiff2/logs/vox2smilesZincAndPoc2MolOutputs/runs/2025-03-23_20-02-10/checkpoints/interrupted.ckpt"
 date

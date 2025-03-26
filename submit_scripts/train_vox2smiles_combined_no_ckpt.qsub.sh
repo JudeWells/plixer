@@ -8,7 +8,7 @@
 #$ -l gpu_type=(a40|a100|a100_80)
 #$ -l h_rt=71:55:30
 #$ -S /bin/bash
-#$ -N vox2smiNoCkpt
+#$ -N vox2smiNoCkpt2
 #$ -t 1
 #$ -o /SAN/orengolab/nsp13/VoxelDiffOuter/VoxelDiff2/qsub_logs/
 #$ -wd /SAN/orengolab/nsp13/VoxelDiffOuter/VoxelDiff2/
@@ -30,5 +30,5 @@ data.num_workers=0 \
 data.config.batch_size=2 \
 trainer.val_check_interval=5000 \
 task_name="vox2smilesZincAndPoc2MolOutputsNoCkpt" \
-ckpt_path=null
+ckpt_path="/SAN/orengolab/nsp13/VoxelDiffOuter/VoxelDiff2/logs/vox2smilesZincAndPoc2MolOutputsNoCkpt/runs/2025-03-23_19-59-20/checkpoints/interrupted.ckpt"
 date
