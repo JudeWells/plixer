@@ -64,6 +64,14 @@ class AbstractUNet(nn.Module):
         if 'g' in layer_order:
             assert num_groups is not None, "num_groups must be specified if GroupNorm is used"
 
+        # Add time embedding projection for diffusion models
+        self.time_emb_dim = 128
+        self.time_mlp = nn.Sequential(
+            nn.Linear(self.time_emb_dim, f_maps[0] * 4),
+            nn.SiLU(),
+            nn.Linear(f_maps[0] * 4, f_maps[0])
+        ) if self.time_emb_dim > 0 else None
+
         # create encoder path
         self.encoders = create_encoders(in_channels, f_maps, basic_module, conv_kernel_size,
                                         conv_padding, conv_upscale, dropout_prob,
@@ -86,11 +94,24 @@ class AbstractUNet(nn.Module):
             # regression problem
             self.final_activation = None
 
-    def forward(self, x, labels=None):
+    def forward(self, x, t_emb=None, labels=None):
         # encoder part
         encoders_features = []
-        for encoder in self.encoders:
+        
+        # Process time embedding if provided
+        time_features = None
+        if t_emb is not None and self.time_mlp is not None:
+            time_features = self.time_mlp(t_emb)
+        
+        for i, encoder in enumerate(self.encoders):
             x = encoder(x)
+            # Add time embedding to the bottleneck (last encoder)
+            if i == len(self.encoders) - 1 and time_features is not None:
+                # Reshape time_features to match spatial dimensions of x
+                batch_size = x.shape[0]
+                # Add time embedding as a residual connection
+                x = x + time_features.view(batch_size, -1, 1, 1, 1)
+                
             # reverse the encoder outputs to be aligned with the decoder
             encoders_features.insert(0, x)
 
@@ -192,9 +213,9 @@ class ResidualUNetSE3D(AbstractUNet):
                                                dropout_prob=dropout_prob,
                                                is3d=True)
 
-    def forward(self, x, labels=None):
-        # run super forward method:
-        preds = super().forward(x)
+    def forward(self, x, t_emb=None, labels=None):
+        # run super forward method with time embedding:
+        preds = super().forward(x, t_emb=t_emb, labels=labels)
         return preds
 
 if __name__=="__main__":

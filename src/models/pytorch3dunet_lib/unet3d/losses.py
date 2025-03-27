@@ -271,6 +271,38 @@ class WeightedSmoothL1Loss(nn.SmoothL1Loss):
         return l1.mean()
 
 
+class DiffusionLoss(nn.Module):
+    """
+    Loss function for the diffusion model, computes MSE between predicted and target noise.
+    Optionally can be combined with other loss functions like L1Loss.
+    """
+    def __init__(self, loss_type='mse', l1_weight=0.0):
+        super(DiffusionLoss, self).__init__()
+        self.loss_type = loss_type
+        self.l1_weight = l1_weight
+        if loss_type == 'mse':
+            self.loss_fn = F.mse_loss
+        elif loss_type == 'huber':
+            self.loss_fn = F.smooth_l1_loss
+        else:
+            raise ValueError(f"Unsupported loss type: {loss_type}")
+        
+        if l1_weight > 0:
+            self.l1_loss = L1Loss()
+
+    def forward(self, pred_noise, target_noise):
+        main_loss = self.loss_fn(pred_noise, target_noise)
+        result = {"diffusion_mse": main_loss}
+        
+        if self.l1_weight > 0:
+            l1_loss = self.l1_loss(pred_noise, target_noise)
+            result["diffusion_l1"] = self.l1_weight * l1_loss
+            main_loss = main_loss + self.l1_weight * l1_loss
+            
+        result["diffusion_loss"] = main_loss
+        return result
+
+
 def flatten(tensor):
     """Flattens a given tensor such that the channel axis is first.
     The shapes are transformed as follows:
@@ -358,5 +390,9 @@ def _create_loss(name, loss_config, weight, ignore_index, pos_weight, with_logit
         return WeightedSmoothL1Loss(threshold=loss_config['threshold'],
                                     initial_weight=loss_config['initial_weight'],
                                     apply_below_threshold=loss_config.get('apply_below_threshold', True))
+    elif name == 'DiffusionLoss':
+        loss_type = loss_config.get('loss_type', 'mse')
+        l1_weight = loss_config.get('l1_weight', 0.0)
+        return DiffusionLoss(loss_type=loss_type, l1_weight=l1_weight)
     else:
         raise RuntimeError(f"Unsupported loss function: '{name}'")
