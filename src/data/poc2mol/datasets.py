@@ -350,11 +350,12 @@ class PlinderParquetDataset(Dataset):
         
         try:
             # Check if we have the new format columns
+            dtype = eval(self.config.dtype) if isinstance(self.config.dtype, str) else self.config.dtype
             if 'protein_coords' in row and 'ligand_coords' in row:
-                protein_coords = torch.tensor(row['protein_coords'], dtype=self.config.dtype).reshape(
+                protein_coords = torch.tensor(row['protein_coords'], dtype=dtype).reshape(
                     list(row['protein_coords_shape'])
                     )
-                ligand_coords = torch.tensor(row['ligand_coords'], dtype=self.config.dtype).reshape(
+                ligand_coords = torch.tensor(row['ligand_coords'], dtype=dtype).reshape(
                     list(row['ligand_coords_shape'])
                 )
                 
