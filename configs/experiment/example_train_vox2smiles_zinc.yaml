@@ -26,7 +26,7 @@ logger:
 
 data:
   _target_: src.data.vox2smiles.data_module.Vox2SmilesDataModule
-  num_workers: 0 #consider moving outside of config
+  num_workers: 0
   config:
     include_hydrogens: false
 

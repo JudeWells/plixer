@@ -56,7 +56,7 @@ class VoxToSmilesModel(LightningModule):
         )
 
         encoder = ViTModel3D(vit_config)
-        # encoder = encoder.to(config.torch_dtype)
+        
         encoder_decoder_config = VisionEncoderDecoderConfig.from_encoder_decoder_configs(
             encoder_config=vit_config,
             decoder_config=gpt2_config,
