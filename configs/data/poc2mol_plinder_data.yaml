@@ -58,4 +58,4 @@ config:
     7: [ "Br" ]
     8: [ "C", "H", "O", "N", "S", "Cl", "F", "I", "Br" ]
   max_atom_dist: 32.0
-  dtype: ${oc.select:torch.float16,torch.float16}
+  dtype: ${oc.select:torch.bfloat16,torch.bfloat16}
