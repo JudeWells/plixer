@@ -7,6 +7,7 @@ import wandb
 from rdkit import Chem
 from rdkit.Chem import Draw
 import os
+import torch
 
 
 def show_3d_voxel_lig_only(vox, angles=None, save_dir=None, identifier='lig'):
@@ -278,3 +279,67 @@ def visualize_2d_molecule_batch(batch_data, output_path, n_cols=3):
     # Save high-resolution figure
     plt.savefig(output_path, dpi=300, bbox_inches='tight')
     plt.close()
+
+
+def visualize_diffusion_sequence(voxels_sequence, names, save_dir, prefix="diffusion"):
+    """Visualize a sequence of voxels showing the diffusion process."""
+    n_steps = len(voxels_sequence)
+    n_samples = voxels_sequence[0].shape[0]
+    
+    for i in range(n_samples):
+        fig, axes = plt.subplots(1, n_steps, figsize=(4*n_steps, 4))
+        if not isinstance(axes, np.ndarray):
+            axes = [axes]
+            
+        for t, voxels in enumerate(voxels_sequence):
+            show_3d_voxel_lig_only(
+                voxels[i],
+                save_dir=os.path.join(save_dir, f"{prefix}_{names[i]}"),
+                identifier=f"step_{t}"
+            )
+            
+            # Load and display the saved image
+            img_path = os.path.join(save_dir, f"{prefix}_{names[i]}/step_{t}_angle_1.png")
+            if os.path.exists(img_path):
+                img = plt.imread(img_path)
+                axes[t].imshow(img)
+                axes[t].axis('off')
+                axes[t].set_title(f"Step {t}")
+        
+        plt.tight_layout()
+        plt.savefig(os.path.join(save_dir, f"{prefix}_{names[i]}_sequence.png"))
+        plt.close()
+
+def visualize_sampling_sequence(model, protein_vox, names, save_dir, n_steps=10):
+    """Visualize the sampling process from noise to final prediction."""
+    device = protein_vox.device
+    batch_size = protein_vox.shape[0]
+    
+    # Initialize from noise
+    x = torch.randn((batch_size, model.config.out_channels) + protein_vox.shape[2:], device=device)
+    sequence = [x.detach().cpu()]
+    
+    # Sample gradually
+    steps = torch.linspace(model.timesteps-1, 0, n_steps).long()
+    for t in steps:
+        t_batch = torch.ones(batch_size, device=device) * t
+        with torch.no_grad():
+            pred_noise = model(protein_vox, x, t_batch)
+            
+            # Update sample
+            alpha_t = model.alpha[t]
+            alpha_bar_t = model.alpha_bar[t]
+            beta_t = model.beta[t]
+            
+            if t > 0:
+                noise = torch.randn_like(x)
+            else:
+                noise = 0
+                
+            x = (1 / torch.sqrt(alpha_t)) * (
+                x - (beta_t / torch.sqrt(1 - alpha_bar_t)) * pred_noise
+            ) + torch.sqrt(beta_t) * noise
+            
+            sequence.append(x.detach().cpu())
+    
+    visualize_diffusion_sequence(sequence, names, save_dir, prefix="sampling")

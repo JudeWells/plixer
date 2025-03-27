@@ -4,6 +4,7 @@ from typing import Any, Dict, Optional
 import torch
 import numpy as np
 from lightning import LightningModule
+import torch.nn.functional as F
 
 from src.models.pytorch3dunet import ResidualUNetSE3D
 from src.models.pytorch3dunet_lib.unet3d.buildingblocks import ResNetBlockSE, ResNetBlock
@@ -12,6 +13,21 @@ from transformers.optimization import get_scheduler
 from src.evaluation.visual import show_3d_voxel_lig_only, visualise_batch
 
 from src.models.pytorch3dunet_lib.unet3d.losses import get_loss_criterion
+
+class DiffusionConfig:
+    def __init__(
+        self,
+        enabled: bool = False,
+        timesteps: int = 1000,
+        beta_schedule: str = 'linear',
+        beta_start: float = 0.0001,
+        beta_end: float = 0.02,
+    ):
+        self.enabled = enabled
+        self.timesteps = timesteps
+        self.beta_schedule = beta_schedule
+        self.beta_start = beta_start
+        self.beta_end = beta_end
 
 class ResUnetConfig:
     def __init__(
@@ -28,7 +44,7 @@ class ResUnetConfig:
         upsample: str = 'default',
         dropout_prob: float = 0.1,
         basic_module: ResNetBlock = ResNetBlockSE,
-
+        diffusion: DiffusionConfig = DiffusionConfig(),
     ):
         self.in_channels = in_channels
         self.out_channels = out_channels
@@ -42,6 +58,7 @@ class ResUnetConfig:
         self.upsample = upsample
         self.dropout_prob = dropout_prob
         self.basic_module = basic_module
+        self.diffusion = diffusion
 
 class Poc2Mol(LightningModule):
     def __init__(
@@ -92,29 +109,72 @@ class Poc2Mol(LightningModule):
         self.override_optimizer_on_load = override_optimizer_on_load
         self.visualise_val = visualise_val
 
+        # Add diffusion-specific initialization if enabled
+        if config.diffusion.enabled:
+            self.timesteps = config.diffusion.timesteps
+            # Calculate beta schedule
+            if config.diffusion.beta_schedule == 'linear':
+                self.beta = torch.linspace(
+                    config.diffusion.beta_start,
+                    config.diffusion.beta_end,
+                    self.timesteps
+                )
+            else:
+                raise NotImplementedError(f"Beta schedule {config.diffusion.beta_schedule} not implemented")
+            
+            # Calculate diffusion parameters
+            self.alpha = 1 - self.beta
+            self.alpha_bar = torch.cumprod(self.alpha, dim=0)
+            self.sqrt_alpha_bar = torch.sqrt(self.alpha_bar)
+            self.sqrt_one_minus_alpha_bar = torch.sqrt(1 - self.alpha_bar)
 
-    def forward(self, prot_vox, labels=None):
-        return self.model(x=prot_vox, labels=labels)
+    def add_noise(self, x, t):
+        """Add noise to input x at timestep t."""
+        noise = torch.randn_like(x)
+        sqrt_alpha_bar_t = self.sqrt_alpha_bar[t].view(-1, 1, 1, 1, 1)
+        sqrt_one_minus_alpha_bar_t = self.sqrt_one_minus_alpha_bar[t].view(-1, 1, 1, 1, 1)
+        return sqrt_alpha_bar_t * x + sqrt_one_minus_alpha_bar_t * noise, noise
+
+    def forward(self, prot_vox, ligand=None, t=None):
+        if not self.config.diffusion.enabled:
+            return self.model(x=prot_vox, labels=ligand)
+        
+        # For diffusion model, concatenate protein voxels with noisy ligand
+        # and timestep embeddings
+        batch_size = prot_vox.shape[0]
+        if t is None:
+            t = torch.randint(0, self.timesteps, (batch_size,), device=prot_vox.device)
+        
+        # Add noise to ligand
+        noisy_ligand, noise = self.add_noise(ligand, t)
+        
+        # Create time embeddings (simple sinusoidal)
+        t_emb = t.unsqueeze(-1) / self.timesteps
+        t_emb = torch.cat([torch.sin(t_emb), torch.cos(t_emb)], dim=-1)
+        
+        # Concatenate protein and noisy ligand
+        x = torch.cat([prot_vox, noisy_ligand], dim=1)
+        
+        # Predict noise
+        pred_noise = self.model(x=x, t_emb=t_emb)
+        return pred_noise
 
     def training_step(self, batch, batch_idx):
+        if not self.config.diffusion.enabled:
+            return super().training_step(batch, batch_idx)
+            
         if "load_time" in batch:
             self.log("train/load_time", batch["load_time"].mean(), on_step=True, on_epoch=False, prog_bar=True)
-        outputs = self(batch["protein"], labels=batch["ligand"])
-        loss = self.loss(outputs, batch["ligand"])
-        if isinstance(loss, dict):
-            running_loss = 0
-            for k,v in loss.items():
-                self.log(f"train/{k}", v, on_step=False, on_epoch=True, prog_bar=False)
-                self.log(f"train/batch_{k}", v, on_step=True, on_epoch=False, prog_bar=False)
-                running_loss += v
-            loss = running_loss
+        
+        pred_noise = self(batch["protein"], batch["ligand"])
+        loss = F.mse_loss(pred_noise, noise)
+        
         self.log("train/loss", loss, on_step=False, on_epoch=True, prog_bar=True)
         self.log("train/batch_loss", loss, on_step=True, on_epoch=False, prog_bar=True)
-        self.log_channel_means(batch, outputs),
+        
         if batch_idx == 0:
-            # apply sigmoid to outputs for visualisation
-            outputs_for_viz = torch.sigmoid(outputs.detach())
-            visualise_batch(batch["ligand"], outputs_for_viz, batch["name"], save_dir=self.img_save_dir, batch=str(batch_idx))
+            self.visualize_diffusion_step(batch, save_dir=self.img_save_dir)
+            
         return loss
 
     def validation_step(self, batch, batch_idx):
@@ -202,3 +262,39 @@ class Poc2Mol(LightningModule):
         self.log_dict({
             f"channel_mean/protein_{channel}": batch['protein'][:,channel,...].mean().detach().item() for channel in range(n_prot_channels)
         })
+
+    @torch.no_grad()
+    def sample(self, prot_vox, steps=None):
+        """Sample from the diffusion model."""
+        if not self.config.diffusion.enabled:
+            return self.forward(prot_vox)
+            
+        steps = steps or self.timesteps
+        batch_size = prot_vox.shape[0]
+        device = prot_vox.device
+        
+        # Start from pure noise
+        x = torch.randn((batch_size, self.config.out_channels) + prot_vox.shape[2:], device=device)
+        
+        # Gradually denoise
+        for t in reversed(range(steps)):
+            t_batch = torch.ones(batch_size, device=device) * t
+            
+            # Predict noise
+            pred_noise = self(prot_vox, x, t_batch)
+            
+            # Update sample
+            alpha_t = self.alpha[t]
+            alpha_bar_t = self.alpha_bar[t]
+            beta_t = self.beta[t]
+            
+            if t > 0:
+                noise = torch.randn_like(x)
+            else:
+                noise = 0
+                
+            x = (1 / torch.sqrt(alpha_t)) * (
+                x - (beta_t / torch.sqrt(1 - alpha_bar_t)) * pred_noise
+            ) + torch.sqrt(beta_t) * noise
+            
+        return x
