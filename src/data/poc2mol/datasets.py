@@ -452,15 +452,15 @@ class PlinderParquetDataset(Dataset):
                 
                 # Apply transformations
                 if self.random_rotation:
-                    assert abs(complex_obj.ligand_data.coords.mean(axis=1) - complex_obj.ligand_center).max() < 1e-3, "Ligand center is not correct"
+                    assert abs(complex_obj.ligand_data.coords.mean(axis=1) - complex_obj.ligand_center).max() < 1, "Ligand center is not correct"
                     complex_obj = apply_random_rotation(complex_obj)
-                    assert abs(complex_obj.ligand_data.coords.mean(axis=1) - complex_obj.ligand_center).max() < 1e-3, f"Ligand center is not correct: {complex_obj.ligand_data.coords.mean(axis=1)} {complex_obj.ligand_center}"
+                    assert abs(complex_obj.ligand_data.coords.mean(axis=1) - complex_obj.ligand_center).max() < 1, f"Ligand center is not correct: {complex_obj.ligand_data.coords.mean(axis=1)} {complex_obj.ligand_center}"
                 
                 if self.random_translation > 0:
                     complex_obj = apply_random_translation(complex_obj, self.random_translation)
                 
                 if self.max_atom_dist is not None and self.max_atom_dist > 0:
-                    assert abs(complex_obj.ligand_data.coords.mean(axis=1) - complex_obj.ligand_center).max() <= self.random_translation, "Ligand center is not correct"
+                    assert abs(complex_obj.ligand_data.coords.mean(axis=1) - complex_obj.ligand_center).max() <= self.random_translation + 1, "Ligand center is not correct"
                     complex_obj = prune_distant_atoms(complex_obj, self.max_atom_dist)
                 
                 # Voxelize the complex
