@@ -14,7 +14,8 @@ config:
   num_channels: 9
   qkv_bias: True
   encoder_stride: 2
-  lr: 5e-5 
+  lr: 5e-5
+  torch_dtype: "bfloat16"
   scheduler:
     type: "cosine_with_min_lr"  # Options: step, linear, cosine, cosine_with_restarts, etc.
     num_warmup_steps: 100

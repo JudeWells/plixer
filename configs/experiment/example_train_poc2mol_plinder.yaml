@@ -1,10 +1,11 @@
 # @package _global_
 # train poc2mol only on data from plinder
 defaults:
+  - _self_
   - override /data: poc2mol_plinder_data
   - override /model: poc2mol
   - override /logger: wandb.yaml
-  - _self_
+
 
 task_name: "poc2mol"
 tags: ["dev"]

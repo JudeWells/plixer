@@ -45,6 +45,7 @@ class VoxToSmilesModel(LightningModule):
             num_channels=config.num_channels,
             qkv_bias=config.qkv_bias,
             encoder_stride=config.encoder_stride,
+            torch_dtype=config.torch_dtype,
         )
 
         gpt2_config = GPT2Config(
@@ -55,7 +56,7 @@ class VoxToSmilesModel(LightningModule):
         )
 
         encoder = ViTModel3D(vit_config)
-
+        # encoder = encoder.to(config.torch_dtype)
         encoder_decoder_config = VisionEncoderDecoderConfig.from_encoder_decoder_configs(
             encoder_config=vit_config,
             decoder_config=gpt2_config,
@@ -64,7 +65,11 @@ class VoxToSmilesModel(LightningModule):
         )
 
         self.model = VisionEncoderDecoderModel(config=encoder_decoder_config, encoder=encoder)
-
+        if vit_config.torch_dtype is not None:
+            if not isinstance(vit_config.torch_dtype, torch.dtype):
+                raise ValueError(f"Unsupported torch_dtype: {vit_config.torch_dtype}")
+            else:
+                self.model = self.model.to(vit_config.torch_dtype)
         self.criterion = torch.nn.CrossEntropyLoss()
         self.train_loss = MeanMetric()
         self.val_loss = MeanMetric()
