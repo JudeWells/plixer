@@ -91,7 +91,7 @@ def visualise_batch(lig, pred, names, angles=None, save_dir=None, batch='none', 
 
     # Set transparency for all colors
     colors[:, 3] = 0.2
-    fig, axs = plt.subplots(nrows=len(names), ncols=len(angles) * 2, figsize=(10, 15))
+    fig, axs = plt.subplots(nrows=max(len(names), 2), ncols=len(angles) * 2, figsize=(10, 15))
 
     for i, single_name in enumerate(names):
         for ang_idx, angle in enumerate(angles):
@@ -132,6 +132,9 @@ def visualise_batch(lig, pred, names, angles=None, save_dir=None, batch='none', 
             ax_pred.set_yticks([])  # Turn off y ticks
             ax_pred.set_zticks([])  #
             for channel in range(n_channels):
+                if pred[i,channel].mean() > 0.19:
+                    pred[i, channel][:-2,:-2,:-1] = 0  # spped up visualisation of dense ones
+                    continue
                 ax_pred.voxels(pred[i, channel], facecolors=colors[channel], edgecolors=colors[channel])
             ax_pred.view_init(elev=angle[0], azim=angle[1])
             fig_pred.savefig(pred_save_path)

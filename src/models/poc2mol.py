@@ -78,12 +78,12 @@ class Poc2Mol(LightningModule):
         compile: bool = False,
         override_optimizer_on_load: bool = False,
         visualise_val: bool = True,
-        dtype: torch.dtype = torch.bfloat16,
+        dtype: torch.dtype = torch.float32,
     ) -> None:
         super().__init__()
         self.save_hyperparameters(logger=False)
-        
-        # Don't store dtype as attribute - it's a special property in PyTorch module        # Create the model
+    
+        # Create the model
         self.model = ResidualUNetSE3D(
             in_channels=config.in_channels,
             out_channels=config.out_channels,
@@ -130,6 +130,14 @@ class Poc2Mol(LightningModule):
                     self.timesteps,
                     dtype=dtype  # Use the parameter directly
                 )
+            elif config.diffusion.beta_schedule == 'cosine':
+                # Cosine schedule as proposed in https://arxiv.org/abs/2102.09672
+                steps = self.timesteps + 1
+                x = torch.linspace(0, self.timesteps, steps, dtype=dtype)
+                alphas_cumprod = torch.cos(((x / self.timesteps) + 0.008) / 1.008 * math.pi / 2) ** 2
+                alphas_cumprod = alphas_cumprod / alphas_cumprod[0]
+                betas = 1 - (alphas_cumprod[1:] / alphas_cumprod[:-1])
+                beta = torch.clip(betas, 0.0001, 0.9999)
             else:
                 raise NotImplementedError(f"Beta schedule {config.diffusion.beta_schedule} not implemented")
             
@@ -143,6 +151,13 @@ class Poc2Mol(LightningModule):
             self.register_buffer('alpha_bar', alpha_bar)
             self.register_buffer('sqrt_alpha_bar', torch.sqrt(alpha_bar))
             self.register_buffer('sqrt_one_minus_alpha_bar', torch.sqrt(1 - alpha_bar))
+            
+            # Add time embedding layer if using diffusion
+            self.time_mlp = torch.nn.Sequential(
+                torch.nn.Linear(16, 32),
+                torch.nn.SiLU(),
+                torch.nn.Linear(32, 32),
+            )
 
     def add_noise(self, x, t):
         """Add noise to input x at timestep t."""
@@ -162,14 +177,19 @@ class Poc2Mol(LightningModule):
         # Add noise to ligand
         noisy_ligand, noise = self.add_noise(ligand, t)
         
-        # Create better time embeddings
-        t_emb = self.get_timestep_embedding(t)
+        # Create time embeddings
+        t_emb = self.get_timestep_embedding(t, embedding_dim=16)
         
-        # Concatenate protein and noisy ligand
+        # Concatenate protein and noisy ligand along channel dimension
         x = torch.cat([prot_vox, noisy_ligand], dim=1)
         
-        # The UNet will process the input and time embedding
-        pred_noise = self.model(x=x, t_emb=t_emb)
+        # The UNet will process the input and predict the noise
+        pred_noise = self.model(x=x, t_emb=None)
+        
+        # Ensure pred_noise has the same shape as noise
+        if pred_noise.shape != noise.shape:
+            raise ValueError(f"Shape mismatch: pred_noise {pred_noise.shape} vs noise {noise.shape}")
+        
         return pred_noise, noise  # Return both predicted and target noise
 
     def training_step(self, batch, batch_idx):
@@ -220,7 +240,7 @@ class Poc2Mol(LightningModule):
                 noise_error = (pred_noise - target_noise).abs().mean()
                 self.log("train/noise_error", noise_error, on_step=False, on_epoch=True)
             
-            if batch_idx == 0:
+            if batch_idx == 0 and loss < 0.5 and self.trainer.current_epoch % 10 == 0:
                 self.visualize_diffusion_step(batch, save_dir=self.img_save_dir)
         
         return loss
@@ -239,7 +259,7 @@ class Poc2Mol(LightningModule):
             save_dir = f"{self.img_save_dir}/val"
             if self.visualise_val and batch_idx in [0, 50, 100]:
                 outputs_for_viz = torch.sigmoid(outputs.detach())
-                lig, pred, names = batch["ligand"][:4], outputs_for_viz[:4], batch["name"][:4]
+                lig, pred, names = batch["ligand"][:1], outputs_for_viz[:1], batch["name"][:1]
 
                 visualise_batch(
                     lig,
@@ -268,17 +288,20 @@ class Poc2Mol(LightningModule):
             
             self.log("val/loss", loss, on_step=False, on_epoch=True, prog_bar=True)
             
-            if self.visualise_val and batch_idx in [0, 50, 100]:
+            if self.visualise_val and batch_idx in [0]:
                 # Sample some denoised predictions for visualization
                 with torch.no_grad():
-                    denoised = self.sample(batch["protein"][:4])
-                    visualise_batch(
-                        batch["ligand"][:4],
-                        denoised,
-                        batch["name"][:4],
-                        save_dir=f"{self.img_save_dir}/val",
-                        batch=str(batch_idx)
-                    )
+                    denoised = self.sample(batch["protein"][:1])
+                    if torch.isnan(denoised).any():
+                        print(f"Warning: NaN values detected in denoised output at batch {batch_idx}")
+                    else:
+                        visualise_batch(
+                            batch["ligand"][:1],
+                            denoised,
+                            batch["name"][:1],
+                            save_dir=f"{self.img_save_dir}/val",
+                            batch=str(batch_idx)
+                        )
             
             return loss
 
@@ -359,27 +382,55 @@ class Poc2Mol(LightningModule):
         
         # Gradually denoise
         for t in reversed(range(steps)):
-            t_batch = torch.ones(batch_size, device=device) * t
+            if torch.isnan(x).any():
+                print(f"Warning: NaN values detected in denoised output at step {t}")
+                break
+            t_batch = (torch.ones(batch_size, device=device) * t).long()
             
             # Predict noise
             pred_noise = self(prot_vox, x, t_batch)[0]  # Only take prediction, not target
+            if torch.isnan(pred_noise).any():
+                print(f"Warning: NaN values detected in predicted noise at step {t}")
+            # Clip predicted noise to prevent extreme values
+            pred_noise = torch.clamp(pred_noise, -100, 100)
             
-            # Update sample
+            # Update sample using more stable formula
             alpha_t = self.alpha[t]
             alpha_bar_t = self.alpha_bar[t]
             beta_t = self.beta[t]
+            
+            # Add small epsilon to avoid division by zero
+            eps = 1e-8
             
             if t > 0:
                 noise = torch.randn_like(x)
             else:
                 noise = 0
-                
-            x = (1 / torch.sqrt(alpha_t)) * (
-                x - (beta_t / torch.sqrt(1 - alpha_bar_t)) * pred_noise
-            ) + torch.sqrt(beta_t) * noise
+            
+            # More numerically stable implementation
+            normalization_factor = 1 / torch.sqrt(alpha_t + eps)
+            noise_weight = beta_t / torch.sqrt(1 - alpha_bar_t + eps)
+
+            x = normalization_factor * (x - noise_weight * pred_noise)
+            
+            if t > 0:  # Only add noise for t > 0
+                x = x + torch.sqrt(beta_t) * noise
+            
+            # Clip x to prevent extreme values that could lead to NaNs in next iteration
+            x = torch.clamp(x, -100, 100)
+            
+            # Check for NaN and replace with zeros if found
+            if torch.isnan(x).any():
+                print(f"Warning: NaN values detected in denoised output at step {t}")
+                nan_mask = torch.isnan(x)
+                x[nan_mask] = 0.0
             
             if save_intermediates:
-                intermediates.append(x.cpu())
+                intermediates.append(torch.sigmoid(x.detach().cpu()))
+        
+        # Final sigmoid to get probabilities if needed
+
+        x = torch.sigmoid(x)
         
         return (x, intermediates) if save_intermediates else x
 
@@ -410,46 +461,96 @@ class Poc2Mol(LightningModule):
         
         with torch.no_grad():
             # Get a few samples for visualization
-            prot = batch["protein"][:4]
-            lig = batch["ligand"][:4]
-            names = batch["name"][:4]
+            prot = batch["protein"][:1]
+            lig = batch["ligand"][:1]
+            names = batch["name"][:1]
             
             # Sample intermediate steps
             _, denoising_steps = self.sample(prot, steps=self.timesteps//10, save_intermediates=True)
+            self.log("denoising_steps_sampled", len(denoising_steps))
+            if len(denoising_steps) >= (self.timesteps//10)-1:
+                # Visualize original ligand
+                visualise_batch(
+                    lig,
+                    lig,  # Show original as both input and output
+                    names,
+                    save_dir=save_dir,
+                    batch="original"
+                )
+                
+                # Visualize first noisy sample
+                visualise_batch(
+                    lig,
+                    denoising_steps[0],
+                    names,
+                    save_dir=save_dir,
+                    batch="noisy_t0"
+                )
+                
+                # Visualize middle step
+                mid_idx = len(denoising_steps) // 2
+                visualise_batch(
+                    lig,
+                    denoising_steps[mid_idx],
+                    names,
+                    save_dir=save_dir,
+                    batch=f"noisy_t{mid_idx}"
+                )
+                
+                # Visualize final denoised result
+                visualise_batch(
+                    lig,
+                    denoising_steps[-2],
+                    names,
+                    save_dir=save_dir,
+                    batch="denoised"
+                )
+    
+        @torch.no_grad()
+        def sample2(self, prot_vox, steps=None, save_intermediates=False):
+            """Sample from the diffusion model."""
+            if not self.config.diffusion.enabled:
+                return self.forward(prot_vox)
+                
+            steps = steps or self.timesteps
+            batch_size = prot_vox.shape[0]
+            device = prot_vox.device
             
-            # Visualize original ligand
-            visualise_batch(
-                lig,
-                lig,  # Show original as both input and output
-                names,
-                save_dir=save_dir,
-                batch="original"
-            )
+            # Start from pure noise
+            x = torch.randn((batch_size, self.config.out_channels) + prot_vox.shape[2:], device=device)
+            intermediates = [x.cpu()] if save_intermediates else None
             
-            # Visualize first noisy sample
-            visualise_batch(
-                lig,
-                denoising_steps[0],
-                names,
-                save_dir=save_dir,
-                batch="noisy_t0"
-            )
+            # Gradually denoise
+            for t in reversed(range(steps)):
+                if torch.isnan(x).any():
+                    print(f"Warning: NaN values detected in denoised output at step {t}")
+                    break
+                
+                # Predict noise
+                pred_noise = self(prot_vox, x, None)[0]  # Only take prediction, not target
+                if torch.isnan(pred_noise).any():
+                    print(f"Warning: NaN values detected in predicted noise at step {t}")
+                # Clip predicted noise to prevent extreme values
+                pred_noise = torch.clamp(pred_noise, -100, 100)
+                    
+                # More numerically stable implementation
+                x = x - pred_noise
+                
+                
+                # Clip x to prevent extreme values that could lead to NaNs in next iteration
+                x = torch.clamp(x, -100, 100)
+                
+                # Check for NaN and replace with zeros if found
+                if torch.isnan(x).any():
+                    print(f"Warning: NaN values detected in denoised output at step {t}")
+                    nan_mask = torch.isnan(x)
+                    x[nan_mask] = 0.0
+                
+                if save_intermediates:
+                    intermediates.append(torch.sigmoid(x.detach().cpu()))
             
-            # Visualize middle step
-            mid_idx = len(denoising_steps) // 2
-            visualise_batch(
-                lig,
-                denoising_steps[mid_idx],
-                names,
-                save_dir=save_dir,
-                batch=f"noisy_t{mid_idx}"
-            )
+            # Final sigmoid to get probabilities if needed
+
+            x = torch.sigmoid(x)
             
-            # Visualize final denoised result
-            visualise_batch(
-                lig,
-                denoising_steps[-1],
-                names,
-                save_dir=save_dir,
-                batch="denoised"
-            )
+            return (x, intermediates) if save_intermediates else x

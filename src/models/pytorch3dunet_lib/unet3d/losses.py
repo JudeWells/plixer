@@ -297,9 +297,7 @@ class DiffusionLoss(nn.Module):
         if self.l1_weight > 0:
             l1_loss = self.l1_loss(pred_noise, target_noise)
             result["diffusion_l1"] = self.l1_weight * l1_loss
-            main_loss = main_loss + self.l1_weight * l1_loss
             
-        result["diffusion_loss"] = main_loss
         return result
 
 

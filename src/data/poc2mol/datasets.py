@@ -324,12 +324,12 @@ class PlinderParquetDataset(Dataset):
         return pickle.loads(base64.b64decode(serialized_data))
 
     def __len__(self):
-        return len(self.cluster_ids)
+        return len(self.cluster_ids) * 1000
 
     def __getitem__(self, idx):
         """Get a random sample from the specified cluster."""
         # Get the cluster ID
-        cluster_id = self.cluster_ids[idx]
+        cluster_id = self.cluster_ids[0]
         
         # Get samples for this cluster
         cluster_samples = self.cluster_index[cluster_id]
