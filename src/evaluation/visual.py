@@ -159,7 +159,7 @@ def visualise_batch(lig, pred, names, angles=None, save_dir=None, batch='none', 
 if __name__=="__main__":
     import yaml
     from torch.utils.data import DataLoader
-    from src.data.poc2mol.datasets import PlinderParquetDataset
+    from src.data.poc2mol.datasets import ParquetDataset
     from src.data.common.voxelization.config import Poc2MolDataConfig
 
     with open('configs/data/data.yaml', 'r') as file:

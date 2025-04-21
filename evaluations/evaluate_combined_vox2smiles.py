@@ -13,7 +13,7 @@ from transformers import PreTrainedTokenizerFast
 from src.models.poc2mol import Poc2Mol
 from src.evaluation.visual import visualise_batch, show_3d_voxel_lig_only, visualize_2d_molecule_batch
 from src.utils.utils import get_config_from_cpt_path, build_combined_model_from_config
-from src.data.poc2mol.datasets import ComplexDataset, PlinderParquetDataset
+from src.data.poc2mol.datasets import ComplexDataset, ParquetDataset
 from src.data.common.voxelization.config import Poc2MolDataConfig
 from src.models.poc2smiles import CombinedProteinToSmilesModel
 from src.data.common.tokenizers.smiles_tokenizer import build_smiles_tokenizer
@@ -75,7 +75,7 @@ def build_test_config(complex_dataset_config: DictConfig, dtype: str):
 
 def build_parquet_test_dataloader(poc2mol_config: DictConfig, dtype: str, pdb_dir: str):
     test_config = build_test_config(poc2mol_config, dtype)
-    dataset = PlinderParquetDataset(
+    dataset = ParquetDataset(
         config=test_config,
         data_path=pdb_dir
     )
