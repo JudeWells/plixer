@@ -5,7 +5,7 @@ HiQBind was downloaded from:
 https://figshare.com/articles/dataset/BioLiP2-Opt_Dataset/27430305?file=52379423
 on 2025-04-21
 
-First, create a chronological split of the data 2020, 2021 and 2022 are used for testing
+First, we create a chronological split of the data 2020, 2021 and 2022 are used for testing
 all previous results are used for training and validation.
 
 Next, within both the training set and the validation set we do clustering on both the
@@ -91,7 +91,6 @@ def run_mmseqs_easy_cluster(fasta_file, out_prefix, min_seq_id=0.9, coverage=0.8
     print(f"Running mmseqs: {' '.join(cmd)}")
     subprocess.run(cmd, check=True)
 
-# ------------------ Utility Functions ------------------
 
 def parse_mmseqs_clusters(cluster_tsv: str):
     """Parse mmseqs easy-cluster tsv file and return mapping from sequence id to cluster id (representative).
@@ -166,7 +165,6 @@ def compute_cluster_weights(df: pd.DataFrame):
     cluster_counts = df["cluster"].value_counts().astype(float)
     return 1.0 / cluster_counts
 
-# ------------------ New helper functions ------------------
 
 def extract_protein_sequence(pdb_path: str) -> str:
     """Extract the amino‑acid sequence from a PDB file (first model, all chains)."""
@@ -272,7 +270,6 @@ def create_indices(input_dir: str):
         with open(os.path.join(output_dir, "index_summary.json"), "w") as f:
             json.dump({"total_samples": len(all_samples), "total_clusters": len(cluster_samples), "total_files": len(parquet_files)}, f, indent=2)
 
-# ------------------ Cluster utility wrappers ------------------
 
 def build_numeric_protein_clusters(raw_dir: str, tsv_path: str | None) -> dict[str, int]:
     """Load existing mmseqs cluster mapping or build it if TSV not present.
@@ -288,13 +285,10 @@ def build_numeric_protein_clusters(raw_dir: str, tsv_path: str | None) -> dict[s
             numeric_map[sid] = rep_to_idx[rep]
         return numeric_map
 
-    # Need to create clustering
     tmp_dir = Path(tsv_path).parent / "mmseqs_tmp" if tsv_path else Path("./mmseqs_tmp")
     numeric_map = run_protein_clustering(raw_dir, str(tmp_dir))
 
-    # Persist TSV if desired
     if tsv_path:
-        # tmp_dir contains file '<out_prefix>_cluster.tsv'
         generated_tsv = str(Path(tmp_dir) / "mmseqs_out_cluster.tsv")
         if os.path.exists(generated_tsv):
             shutil.copy(generated_tsv, tsv_path)
@@ -316,7 +310,6 @@ def build_ligand_clusters(meta_df: pd.DataFrame, smiles_col: str = "Ligand SMILE
             json.dump(mapping, f, indent=2)
     return mapping
 
-# ------------------ Main Pipeline ------------------
 
 def main():
     parser = argparse.ArgumentParser(description="Create HiQBind parquet dataset compatible with ParquetDataset")
@@ -333,9 +326,6 @@ def main():
 
     os.makedirs(args.output_dir, exist_ok=True)
 
-    # ------------------------------------------------------------------
-    # Load metadata to map pdb_id -> year
-    # ------------------------------------------------------------------
     if not os.path.exists(args.metadata):
         raise FileNotFoundError(f"Metadata CSV not found at {args.metadata}")
     meta_df = pd.read_csv(args.metadata)
@@ -344,15 +334,8 @@ def main():
     year_col = "Year"
 
     pdb_to_year = dict(zip(meta_df[pdb_col].astype(str).str.lower(), meta_df[year_col].astype(int)))
-
-    # ------------------------------------------------------------------
-    # Prepare molecular parser instance
-    # ------------------------------------------------------------------
     parser = MolecularParserWrapper()
 
-    # ------------------------------------------------------------------
-    # Build / load protein & ligand clusters
-    # ------------------------------------------------------------------
     protein_cluster_map = build_numeric_protein_clusters(args.raw_dir, args.mmseqs_cluster_tsv)
 
     ligand_cluster_json = os.path.join(args.output_dir, "ligand_clusters.json")
@@ -361,10 +344,6 @@ def main():
     n_val_cluster_ids = len(unique_cluster_ids) // 10
     np.random.seed(42)
     validation_cluster_ids = np.random.choice(unique_cluster_ids, size=n_val_cluster_ids, replace=False)
-    # ------------------------------------------------------------------
-    # Walk through raw directories, stream rows, flush to parquet upon reaching cap
-    # ------------------------------------------------------------------
-
     batch_counters = {"train": 0, "val": 0, "test": 0}
     buffers = {"train": [], "val": [], "test": []}
     saved_files = []
@@ -382,8 +361,8 @@ def main():
         buffers[split_name].clear()
         batch_counters[split_name] += 1
 
-    # pdb_dirs = [d for d in glob.glob(os.path.join(args.raw_dir, "*")) if os.path.isdir(d)]
-    # log.info(f"Found {len(pdb_dirs)} PDB parent directories in {args.raw_dir}")
+    pdb_dirs = [d for d in glob.glob(os.path.join(args.raw_dir, "*")) if os.path.isdir(d)]
+    log.info(f"Found {len(pdb_dirs)} PDB parent directories in {args.raw_dir}")
 
     for pdb_dir in tqdm(pdb_dirs, desc="Processing PDB folders"):
         pdb_code = os.path.basename(pdb_dir).lower()
@@ -442,14 +421,8 @@ def main():
         log.error("No parquet files written. Exiting")
         return
 
-    # ------------------------------------------------------------------
-    # Create indices
-    # ------------------------------------------------------------------
     create_indices(args.output_dir)
 
-    # ------------------------------------------------------------------
-    # Save index CSV summarizing batches
-    # ------------------------------------------------------------------
     index_df = pd.DataFrame({"parquet_file": saved_files, "split": [os.path.basename(f).split("_")[0] for f in saved_files]})
     index_path = os.path.join(args.output_dir, "index.csv")
     index_df.to_csv(index_path, index=False)
