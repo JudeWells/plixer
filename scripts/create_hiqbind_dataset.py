@@ -247,29 +247,30 @@ def cluster_ligands(smiles_list: list[str], cutoff: float = 0.3) -> dict[str, in
 
 def create_indices(input_dir: str):
     """Generate cluster/file mapping indices inside *input_dir*/indices using same logic as Plinder script."""
-    output_dir = os.path.join(input_dir, "indices")
-    os.makedirs(output_dir, exist_ok=True)
-    parquet_files = glob.glob(os.path.join(input_dir, "*.parquet"))
-    if not parquet_files:
-        return
-    all_samples, file_indices = [], []
-    cluster_samples = defaultdict(list)
-    for file_idx, file_path in enumerate(parquet_files):
-        df = pd.read_parquet(file_path)
-        for row_idx, row in df.iterrows():
-            cluster_id = str(row.get("cluster", "0"))
-            all_samples.append({"system_id": row["system_id"], "cluster": cluster_id})
-            file_indices.append(file_idx)
-            cluster_samples[cluster_id].append({"file_idx": file_idx, "system_id": row["system_id"], "row_idx": int(row_idx)})
-    # write files
-    with open(os.path.join(output_dir, "global_index.json"), "w") as f:
-        json.dump({"samples": all_samples, "file_indices": file_indices}, f)
-    with open(os.path.join(output_dir, "cluster_index.json"), "w") as f:
-        json.dump(cluster_samples, f)
-    with open(os.path.join(output_dir, "file_mapping.json"), "w") as f:
-        json.dump({i: os.path.basename(p) for i, p in enumerate(parquet_files)}, f)
-    with open(os.path.join(output_dir, "index_summary.json"), "w") as f:
-        json.dump({"total_samples": len(all_samples), "total_clusters": len(cluster_samples), "total_files": len(parquet_files)}, f)
+    for split_dir in ["train", "val", "test"]:
+        output_dir = os.path.join(input_dir, split_dir, "indices")
+        os.makedirs(output_dir, exist_ok=True)
+        parquet_files = glob.glob(os.path.join(input_dir, split_dir, "*.parquet"))
+        if not parquet_files:
+            return
+        all_samples, file_indices = [], []
+        cluster_samples = defaultdict(list)
+        for file_idx, file_path in enumerate(parquet_files):
+            df = pd.read_parquet(file_path)
+            for row_idx, row in df.iterrows():
+                cluster_id = row["cluster"]
+                all_samples.append({"system_id": row["system_id"], "cluster": cluster_id})
+                file_indices.append(file_idx)
+                cluster_samples[cluster_id].append({"file_idx": file_idx, "system_id": row["system_id"], "row_idx": int(row_idx)})
+        
+        with open(os.path.join(output_dir, "global_index.json"), "w") as f:
+            json.dump({"samples": all_samples, "file_indices": file_indices}, f, indent=2)
+        with open(os.path.join(output_dir, "cluster_index.json"), "w") as f:
+            json.dump(cluster_samples, f, indent=2)
+        with open(os.path.join(output_dir, "file_mapping.json"), "w") as f:
+            json.dump({i: os.path.basename(p) for i, p in enumerate(parquet_files)}, f, indent=2)
+        with open(os.path.join(output_dir, "index_summary.json"), "w") as f:
+            json.dump({"total_samples": len(all_samples), "total_clusters": len(cluster_samples), "total_files": len(parquet_files)}, f, indent=2)
 
 # ------------------ Cluster utility wrappers ------------------
 
@@ -381,8 +382,8 @@ def main():
         buffers[split_name].clear()
         batch_counters[split_name] += 1
 
-    pdb_dirs = [d for d in glob.glob(os.path.join(args.raw_dir, "*")) if os.path.isdir(d)]
-    log.info(f"Found {len(pdb_dirs)} PDB parent directories in {args.raw_dir}")
+    # pdb_dirs = [d for d in glob.glob(os.path.join(args.raw_dir, "*")) if os.path.isdir(d)]
+    # log.info(f"Found {len(pdb_dirs)} PDB parent directories in {args.raw_dir}")
 
     for pdb_dir in tqdm(pdb_dirs, desc="Processing PDB folders"):
         pdb_code = os.path.basename(pdb_dir).lower()
@@ -422,7 +423,7 @@ def main():
                     "ligand_coords_shape": ligand_data.coords.shape,
                     "ligand_element_symbols": ligand_data.element_symbols.astype('U'),
                     "split": split,
-                    "cluster": str(protein_cluster_id),
+                    "cluster": f'P{protein_cluster_id}L{ligand_cluster_id}',
                     "protein_cluster_id": int(protein_cluster_id),
                     "ligand_cluster_id": int(ligand_cluster_id),
                 }
