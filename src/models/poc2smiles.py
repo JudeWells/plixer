@@ -4,6 +4,7 @@ import torch.nn as nn
 import torch.optim as optim
 import lightning as L
 from torch.optim.lr_scheduler import StepLR
+from transformers.optimization import get_scheduler
 import matplotlib.pyplot as plt
 import numpy as np
 from rdkit import Chem
@@ -179,24 +180,59 @@ class CombinedProteinToSmilesModel(L.LightningModule):
             Dictionary containing optimizer and scheduler
         """
         # Create optimizer
-        optimizer = optim.Adam(
+        optimizer = optim.AdamW(
             self.parameters(),
             lr=self.config.get("lr", 1e-4),
             weight_decay=self.config.get("weight_decay", 0.0),
         )
-        
-        # Create scheduler
-        scheduler = StepLR(
-            optimizer,
-            step_size=self.config.get("step_size", 100),
-            gamma=self.config.get("gamma", 0.99),
-        )
-        
-        return {
-            "optimizer": optimizer,
-            "lr_scheduler": scheduler,
-        }
-    
+
+        # Scheduler configuration (nested style)
+        scheduler_config = self.config.get("scheduler", {})
+        scheduler_type = scheduler_config.get("type", "step")
+
+        if scheduler_type == "step":
+            # Fallback to legacy root‑level step_size/gamma if not provided inside scheduler block
+            step_size = scheduler_config.get("step_size", self.config.get("step_size", 100))
+            gamma = scheduler_config.get("gamma", self.config.get("gamma", 0.99))
+            scheduler = StepLR(optimizer, step_size=step_size, gamma=gamma)
+            return {
+                "optimizer": optimizer,
+                "lr_scheduler": {
+                    "scheduler": scheduler,
+                    "interval": "step",
+                },
+            }
+        else:
+            # Use transformers' schedulers for advanced cases
+            num_training_steps = self.trainer.estimated_stepping_batches
+            num_warmup_steps = scheduler_config.get("num_warmup_steps", 0)
+
+            if isinstance(num_warmup_steps, float) and 0 <= num_warmup_steps < 1:
+                num_warmup_steps = int(num_training_steps * num_warmup_steps)
+
+            scheduler_specific_kwargs = {}
+
+            if scheduler_type == "cosine_with_restarts":
+                scheduler_specific_kwargs["num_cycles"] = scheduler_config.get("num_cycles", 1)
+            elif scheduler_type == "cosine_with_min_lr":
+                scheduler_specific_kwargs["min_lr_rate"] = scheduler_config.get("min_lr_rate", 0.1)
+
+            scheduler = get_scheduler(
+                name=scheduler_type,
+                optimizer=optimizer,
+                num_warmup_steps=num_warmup_steps,
+                num_training_steps=num_training_steps,
+                scheduler_specific_kwargs=scheduler_specific_kwargs,
+            )
+
+            return {
+                "optimizer": optimizer,
+                "lr_scheduler": {
+                    "scheduler": scheduler,
+                    "interval": scheduler_config.get("interval", "step"),
+                    "frequency": scheduler_config.get("frequency", 1),
+                },
+            }
 
     def on_load_checkpoint(self, checkpoint):
         """Handle checkpoint loading, optionally overriding optimizer and scheduler states.

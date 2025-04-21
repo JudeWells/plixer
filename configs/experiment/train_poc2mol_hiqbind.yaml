@@ -26,7 +26,8 @@ logger:
     id: null # pass correct id to resume experiment!
 
 model:
-  override_optimizer_on_load: false
+  override_optimizer_on_load: True
+
   config:
     in_channels: 4
     out_channels: 9

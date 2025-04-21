@@ -5,18 +5,19 @@ HiQBind was downloaded from:
 https://figshare.com/articles/dataset/BioLiP2-Opt_Dataset/27430305?file=52379423
 on 2025-04-21
 
-First, we create a chronological split of the data 2020, 2021 and 2022 are used for testing
+We create a chronological split of the data 2020, 2021 and 2022 are used for testing
 all previous results are used for training and validation.
 
-Next, within both the training set and the validation set we do clustering on both the
-ligand and the protein.
+Independent of the (train + val) / test split, we also do clustering on both the ligand and the 
+protein sequence. We choose 10% of the protein clusters to be the validation set
 
-We will use MMSEQS easy cluster with 30% sequence identity 50% coverage to generate the protein similarity clusters.
+To avoid reppetition during training we sample from combined cluster where the combined cluster is defined
+as the combination of the protein cluster and the ligand cluster.
 
-For the ligand clustering use a good open source method.
+For protein clustering: MMSEQS easy cluster with 30% sequence identity 50% coverage.
 
-For the training dataset in a similar fashion to the plinder dataset we will iterate over clusters
-where the cluster is defined based on the protein sequence only.
+For the ligand clustering: EFCP finger prints and tanimoto
+
 
 For the test dataset we will do a non-redundancy reduction which considers both the protein and the ligand.
 For this we sample 1 test example from for each protein-ligand cluster pair.
