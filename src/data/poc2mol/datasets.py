@@ -233,9 +233,9 @@ class MolecularComplex:
             dtype=DTYPE,
         )
 
-class PlinderParquetDataset(Dataset):
+class ParquetDataset(Dataset):
     """
-    Dataset for protein-ligand complexes from Plinder parquet files.
+    Dataset for protein-ligand complexes from parquet files (eg. Plinder or HiQBind).
     Loads protein-ligand data from parquet files and voxelizes them on the fly.
     Each item represents a cluster, and a random sample from that cluster is returned.
     """

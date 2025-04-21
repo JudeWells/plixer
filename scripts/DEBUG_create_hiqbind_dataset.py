@@ -108,7 +108,7 @@ def parse_mmseqs_clusters(cluster_tsv: str):
             parts = line.strip().split("\t")
             if len(parts) < 2:
                 continue
-            cluster_rep, seq_id = parts[0], parts[1]
+            seq_id, cluster_rep = parts[0], parts[1]
             mapping[seq_id] = cluster_rep
     return mapping
 
@@ -193,26 +193,25 @@ def build_fasta(seqs: dict[str, str], fasta_path: str):
 def run_protein_clustering(raw_dir: str, tmp_dir: str) -> dict[str, str]:
     """Extract sequences, run mmseqs clustering, return mapping system_id -> protein cluster rep."""
     os.makedirs(tmp_dir, exist_ok=True)
-    fasta_path = "../hiqbind/hiqbind_proteins.fasta"
-    if not os.path.exists(fasta_path):
-        seqs = {}
-        for system_dir in glob.glob(os.path.join(raw_dir, "*/*")):
-            if not os.path.isdir(system_dir):
-                continue
-            pdb_files = glob.glob(os.path.join(system_dir, "*_protein_refined.pdb"))
-            if not pdb_files:
-                pdb_files = glob.glob(os.path.join(system_dir, "*_protein.pdb"))
-            if not pdb_files:
-                continue
-            seq = extract_protein_sequence(pdb_files[0])
-            if seq:
-                seqs[os.path.basename(system_dir)] = seq
-        build_fasta(seqs, fasta_path)
+    fasta_path = os.path.join(tmp_dir, "hiqbind_proteins.fasta")
+    # Gather sequences
+    seqs = {}
+    for system_dir in glob.glob(os.path.join(raw_dir, "*/*")):
+        if not os.path.isdir(system_dir):
+            continue
+        pdb_files = glob.glob(os.path.join(system_dir, "*_protein_refined.pdb"))
+        if not pdb_files:
+            pdb_files = glob.glob(os.path.join(system_dir, "*_protein.pdb"))
+        if not pdb_files:
+            continue
+        seq = extract_protein_sequence(pdb_files[0])
+        if seq:
+            seqs[os.path.basename(system_dir)] = seq
+    build_fasta(seqs, fasta_path)
     # Run mmseqs
     out_prefix = os.path.join(tmp_dir, "mmseqs_out")
     run_mmseqs_easy_cluster(fasta_path, out_prefix, min_seq_id=0.3, coverage=0.5)
     cluster_tsv = out_prefix + "_cluster.tsv"
-    
     mapping_raw = parse_mmseqs_clusters(cluster_tsv)
     # Map representative ids to incremental cluster numbers
     rep_to_idx = {}
@@ -226,8 +225,8 @@ def run_protein_clustering(raw_dir: str, tmp_dir: str) -> dict[str, str]:
 
 def cluster_ligands(smiles_list: list[str], cutoff: float = 0.3) -> dict[str, int]:
     """Cluster ligands with Butina on ECFP4 fingerprints."""
-    unique_smiles = list({s for s in smiles_list if s})
-    fps = [AllChem.GetMorganFingerprintAsBitVect(Chem.MolFromSmiles(s), 2, nBits=1024) for s in unique_smiles]
+    uniq_smiles = list({s for s in smiles_list if s})
+    fps = [AllChem.GetMorganFingerprintAsBitVect(Chem.MolFromSmiles(s), 2, nBits=1024) for s in uniq_smiles]
     # Compute distance matrix (1‑tan).
     dists = []
     for i in range(1, len(fps)):
@@ -237,7 +236,7 @@ def cluster_ligands(smiles_list: list[str], cutoff: float = 0.3) -> dict[str, in
     smi_to_cluster = {}
     for cidx, cluster in enumerate(clusters):
         for idx in cluster:
-            smi_to_cluster[unique_smiles[idx]] = cidx
+            smi_to_cluster[uniq_smiles[idx]] = cidx
     # Any smile that failed to parse gets own cluster
     for s in smiles_list:
         if s not in smi_to_cluster:
@@ -312,7 +311,7 @@ def build_ligand_clusters(meta_df: pd.DataFrame, smiles_col: str = "Ligand SMILE
 
     if out_json:
         with open(out_json, "w") as f:
-            json.dump(mapping, f, indent=2)
+            json.dump(mapping, f)
     return mapping
 
 # ------------------ Main Pipeline ------------------
@@ -321,10 +320,10 @@ def main():
     parser = argparse.ArgumentParser(description="Create HiQBind parquet dataset compatible with ParquetDataset")
     parser.add_argument("--raw_dir", default="../hiqbind/raw_data_hiq_sm", help="Directory containing raw HiQBind structures")
     parser.add_argument("--metadata", default="../hiqbind/hiqbind_metadata.csv", help="Path to HiQBind metadata CSV")
-    parser.add_argument("--output_dir", default="../hiqbind/parquet", help="Directory to save parquet batches")
+    parser.add_argument("--output_dir", default="../hiqbind_debug/parquet", help="Directory to save parquet batches")
     parser.add_argument("--min_atoms", type=int, default=10, help="Minimum heavy atoms for ligand")
-    parser.add_argument("--entries_per_file", type=int, default=32, help="Maximum number of rows per output parquet file")
-    parser.add_argument("--mmseqs_cluster_tsv", default="../hiqbind/protein_clusters.tsv", help="Path to mmseqs cluster TSV (will be generated if absent)")
+    parser.add_argument("--systems_per_batch", type=int, default=500, help="Max systems per parquet batch per split")
+    parser.add_argument("--mmseqs_cluster_tsv", default="../hiqbind_debug/protein_clusters.tsv", help="Path to mmseqs cluster TSV (will be generated if absent)")
     parser.add_argument("--val_fraction", type=float, default=0.1, help="Fraction of train clusters to use as validation")
     parser.add_argument("--test_year_start", type=int, default=2020, help="Year (inclusive) for test split")
 
@@ -356,30 +355,11 @@ def main():
 
     ligand_cluster_json = os.path.join(args.output_dir, "ligand_clusters.json")
     ligand_cluster_map = build_ligand_clusters(meta_df, out_json=ligand_cluster_json)
-    unique_cluster_ids = np.array(list(set(protein_cluster_map.values())))
-    n_val_cluster_ids = len(unique_cluster_ids) // 10
-    np.random.seed(42)
-    validation_cluster_ids = np.random.choice(unique_cluster_ids, size=n_val_cluster_ids, replace=False)
-    # ------------------------------------------------------------------
-    # Walk through raw directories, stream rows, flush to parquet upon reaching cap
-    # ------------------------------------------------------------------
 
-    batch_counters = {"train": 0, "val": 0, "test": 0}
-    buffers = {"train": [], "val": [], "test": []}
-    saved_files = []
-
-    def flush_split(split_name: str):
-        if not buffers[split_name]:
-            return
-        outdir = os.path.join(args.output_dir, split_name)
-        os.makedirs(outdir, exist_ok=True)
-        batch_idx = batch_counters[split_name]
-        out_path = os.path.join(outdir, f"{split_name}_batch_{batch_idx:04d}.parquet")
-        pd.DataFrame(buffers[split_name]).to_parquet(out_path, index=False)
-        log.info(f"Flushed {len(buffers[split_name])} rows to {out_path}")
-        saved_files.append(out_path)
-        buffers[split_name].clear()
-        batch_counters[split_name] += 1
+    # ------------------------------------------------------------------
+    # Walk through raw directories and gather systems
+    # ------------------------------------------------------------------
+    system_rows = []
 
     pdb_dirs = [d for d in glob.glob(os.path.join(args.raw_dir, "*")) if os.path.isdir(d)]
     log.info(f"Found {len(pdb_dirs)} PDB parent directories in {args.raw_dir}")
@@ -390,23 +370,21 @@ def main():
         for system_dir in subdirs:
             system_id = os.path.basename(system_dir)
             try:
-                # Determine cluster from protein mapping (requires SMILES after parsed)
                 protein_data, ligand_data, smiles = process_system(system_dir, parser, min_atoms=args.min_atoms)
                 if protein_data is None:
                     continue
-
-                protein_cluster_id = protein_cluster_map.get(system_id, protein_cluster_map.get(pdb_code, -1))
-                ligand_cluster_id = ligand_cluster_map.get(smiles, -1)
-
                 # Determine split based on year
                 year = pdb_to_year.get(pdb_code)
-                if year is None or year < args.test_year_start:
-                    if protein_cluster_id in validation_cluster_ids:
-                        split = "val"
-                    else:
-                        split = "train"
-                else:
+                if year is None:
+                    split = "train"
+                elif year >= args.test_year_start:
                     split = "test"
+                else:
+                    split = "train"  # val will be assigned later
+
+                # Determine cluster from protein mapping
+                protein_cluster_id = protein_cluster_map.get(system_id, protein_cluster_map.get(pdb_code, -1))
+                ligand_cluster_id = ligand_cluster_map.get(smiles, -1)
 
                 # Flatten coords and shapes
                 protein_coords_flat = protein_data.coords.float().numpy().astype(np.float16).flatten()
@@ -426,25 +404,59 @@ def main():
                     "protein_cluster_id": int(protein_cluster_id),
                     "ligand_cluster_id": int(ligand_cluster_id),
                 }
-                buffers[split].append(row)
-                if len(buffers[split]) >= args.entries_per_file:
-                    flush_split(split)
-                
+                system_rows.append(row)
             except Exception as e:
                 log.error(f"Error processing {system_dir}: {e}")
 
-    # Flush any remaining rows
-    for s in ["train", "val", "test"]:
-        flush_split(s)
-
-    if not saved_files:
-        log.error("No parquet files written. Exiting")
+    df_all = pd.DataFrame(system_rows)
+    if df_all.empty:
+        log.error("No valid systems processed. Exiting.")
         return
 
     # ------------------------------------------------------------------
-    # Create indices
+    # Create validation split from train clusters
     # ------------------------------------------------------------------
-    create_indices(args.output_dir)
+    train_clusters = df_all[df_all["split"] == "train"]["protein_cluster_id"].astype(str).unique()
+    n_val_clusters = max(1, int(len(train_clusters) * args.val_fraction))
+    val_clusters = set(np.random.choice(train_clusters, size=n_val_clusters, replace=False))
+    df_all.loc[df_all["protein_cluster_id"].astype(str).isin(val_clusters), "split"] = "val"
+
+    # ------------------------------------------------------------------
+    # Compute cluster weights (train + val only)
+    # ------------------------------------------------------------------
+    weights = compute_cluster_weights(df_all[df_all["split"] != "test"])
+    df_all["weight"] = df_all["protein_cluster_id"].map(weights).fillna(1.0)
+
+    # ------------------------------------------------------------------
+    # Save parquet batches
+    # ------------------------------------------------------------------
+    split_counts = {"train": 0, "val": 0, "test": 0}
+    batch_counters = {"train": 0, "val": 0, "test": 0}
+    buffers = {"train": [], "val": [], "test": []}
+    saved_files = []
+
+    def flush_buffer(split_name):
+        nonlocal buffers, batch_counters, saved_files
+        if not buffers[split_name]:
+            return
+        batch_idx = batch_counters[split_name]
+        out_path = os.path.join(args.output_dir, f"{split_name}_batch_{batch_idx:03d}.parquet")
+        pd.DataFrame(buffers[split_name]).to_parquet(out_path, index=False)
+        log.info(f"Saved {len(buffers[split_name])} systems to {out_path}")
+        saved_files.append(out_path)
+        buffers[split_name] = []
+        batch_counters[split_name] += 1
+
+    for _, row in df_all.iterrows():
+        split = row["split"]
+        buffers[split].append(row.to_dict())
+        split_counts[split] += 1
+        if len(buffers[split]) >= args.systems_per_batch:
+            flush_buffer(split)
+
+    # Flush remaining
+    for s in ["train", "val", "test"]:
+        flush_buffer(s)
 
     # ------------------------------------------------------------------
     # Save index CSV summarizing batches
@@ -453,7 +465,12 @@ def main():
     index_path = os.path.join(args.output_dir, "index.csv")
     index_df.to_csv(index_path, index=False)
     log.info(f"Created index file with {len(saved_files)} parquet files at {index_path}")
-    log.info("Dataset creation complete")
+    log.info(f"Split counts: {split_counts}")
+
+    # ------------------------------------------------------------------
+    # Create indices
+    # ------------------------------------------------------------------
+    create_indices(args.output_dir)
 
 if __name__ == "__main__":
     main()

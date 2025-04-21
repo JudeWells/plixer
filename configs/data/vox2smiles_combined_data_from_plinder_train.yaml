@@ -25,7 +25,7 @@ train_dataset:
     _target_: src.data.vox2smiles.datasets.Poc2MolOutputDataset
     ckpt_path: logs/poc2molPlinder/runs/2025-03-23_22-39-56/checkpoints/last.ckpt
     complex_dataset:
-      _target_: src.data.poc2mol.datasets.PlinderParquetDataset
+      _target_: src.data.poc2mol.datasets.ParquetDataset
       data_path: ../plinder/train_arrays_filtered
       translation: 6.0
       rotate: true

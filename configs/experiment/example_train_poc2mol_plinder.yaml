@@ -39,15 +39,15 @@ trainer:
 data:
   num_workers: 0
   train_dataset:
-    _target_: src.data.poc2mol.datasets.PlinderParquetDataset
+    _target_: src.data.poc2mol.datasets.ParquetDataset
     data_path: "example_data/plinder_example"
     config: ${data.config}
   val_dataset:
-    _target_: src.data.poc2mol.datasets.PlinderParquetDataset
+    _target_: src.data.poc2mol.datasets.ParquetDataset
     data_path: "example_data/plinder_example"
     config: ${data.config}
   test_dataset:
-    _target_: src.data.poc2mol.datasets.PlinderParquetDataset
+    _target_: src.data.poc2mol.datasets.ParquetDataset
     data_path: "example_data/plinder_example"
     config: ${data.config}
 
