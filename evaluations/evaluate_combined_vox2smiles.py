@@ -17,6 +17,7 @@ from src.data.poc2mol.datasets import ComplexDataset, PlinderParquetDataset
 from src.data.common.voxelization.config import Poc2MolDataConfig
 from src.models.poc2smiles import CombinedProteinToSmilesModel
 from src.data.common.tokenizers.smiles_tokenizer import build_smiles_tokenizer
+from visualisation import generate_plots_from_results_df
 from rdkit import Chem, DataStructs
 from rdkit.Chem import AllChem
 from rdkit.Chem import rdFMCS
@@ -52,7 +53,7 @@ def parse_args():
         "--pdb_dir", 
         type=str, 
         # default="../PDBbind_v2020_refined-set",
-        default="../plinder/val_arrays",
+        default="../plinder/test_arrays",
         help="Directory to save evaluation results"
     )
     parser.add_argument(
@@ -78,7 +79,7 @@ def build_parquet_test_dataloader(poc2mol_config: DictConfig, dtype: str, pdb_di
         config=test_config,
         data_path=pdb_dir
     )
-    return DataLoader(dataset, batch_size=1, shuffle=False)
+    return DataLoader(dataset, batch_size=1, shuffle=True)
 
 
 def build_pdb_test_dataloader(
@@ -155,7 +156,12 @@ def get_max_common_substructure_num_atoms(smiles1, smiles2):
 
 
 
-def evaluate_combined_model(combined_model: CombinedProteinToSmilesModel, test_dataloader: DataLoader):
+def evaluate_combined_model(
+        combined_model: CombinedProteinToSmilesModel, 
+        test_dataloader: DataLoader,
+        output_dir="evaluation_results"
+        ):
+    os.makedirs(output_dir, exist_ok=True)
     # Get tokenizer configuration from the model config
     config = combined_model.config
     max_smiles_len = config.data.config.max_smiles_len
@@ -177,8 +183,8 @@ def evaluate_combined_model(combined_model: CombinedProteinToSmilesModel, test_d
         decoy_labels = batch['input_ids'] # use previous batch as decoy labels
         
         # convert_smiles_to_rdkit_molecule
-        true_smiles = batch['smiles'][0].replace(tokenizer.bos_token, '').replace(tokenizer.eos_token, '')
-        sampled_smiles = result['sampled_smiles'][0]
+        true_smiles = batch['smiles'][0].replace(tokenizer.bos_token, '').replace(tokenizer.eos_token, '').replace("[BOS]", "").replace("[EOS]", "")
+        sampled_smiles = result['sampled_smiles'][0].replace("[BOS]", "").replace("[EOS]", "")
         try:
             true_mol = Chem.MolFromSmiles(true_smiles)
             if true_mol is None:
@@ -213,12 +219,22 @@ def evaluate_combined_model(combined_model: CombinedProteinToSmilesModel, test_d
         tanimoto_similarity = get_tanimoto_similarity_from_smiles(true_smiles, sampled_smiles)
         decoy_tanimoto_similarity = get_tanimoto_similarity_from_smiles(decoy_smiles, sampled_smiles)
         true_vs_decoy_tanimoto_similarity = get_tanimoto_similarity_from_smiles(true_smiles, decoy_smiles)
-        
+    
         mcs_num_atoms = get_max_common_substructure_num_atoms(true_smiles, sampled_smiles)
         decoy_mcs_num_atoms = get_max_common_substructure_num_atoms(decoy_smiles, sampled_smiles)
         true_vs_decoy_mcs_num_atoms = get_max_common_substructure_num_atoms(true_smiles, decoy_smiles)
-        
+        try:
+            true_num_heavy_atoms = Chem.MolFromSmiles(true_smiles).GetNumHeavyAtoms()
+        except:
+            true_num_heavy_atoms = None
+        if sampled_smiles is not None:
+            try:
+                prop_common_structure = mcs_num_atoms / true_num_heavy_atoms
+            except:
+                prop_common_structure = None
+
         decoy_smiles = true_smiles # use last batch smiles as decoy smiles
+        
         result_rows.append(
             {
                 'sampled_smiles': sampled_smiles,
@@ -232,16 +248,23 @@ def evaluate_combined_model(combined_model: CombinedProteinToSmilesModel, test_d
                 'true_vs_decoy_tanimoto_similarity': true_vs_decoy_tanimoto_similarity,
                 'mcs_num_atoms': mcs_num_atoms,
                 'decoy_mcs_num_atoms': decoy_mcs_num_atoms,
-                'true_vs_decoy_mcs_num_atoms': true_vs_decoy_mcs_num_atoms
+                'true_vs_decoy_mcs_num_atoms': true_vs_decoy_mcs_num_atoms,
+                'prop_common_structure': prop_common_structure,
+                'true_num_heavy_atoms': true_num_heavy_atoms
             }
         )
         df = pd.DataFrame(result_rows)
-        df.to_csv('evaluation_results/combined_model_results.csv', index=False)
+        df.to_csv(f'{output_dir}/combined_model_results.csv', index=False)
 
     return result_rows
 
 def main():
     args = parse_args()
+    if os.path.exists(f'{args.output_dir}/combined_model_results.csv'):
+        df = pd.read_csv(f'{args.output_dir}/combined_model_results.csv')
+        generate_plots_from_results_df(df, args.output_dir)
+        return
+
     config = get_config_from_cpt_path(args.ckpt_path)
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     combined_model = build_combined_model_from_config(
@@ -264,7 +287,33 @@ def main():
             args.pdb_dir, 
             args.dtype
         )
-    evaluate_combined_model(combined_model, test_dataloader)
+    results = evaluate_combined_model(
+        combined_model, 
+        test_dataloader,
+        output_dir=args.output_dir
+        )
+    results_df = pd.DataFrame(results)
+    for c in results_df.columns:
+        try:
+            print(c, round(results_df[c].mean(), 3))
+        except:
+            pass
+    generate_plots_from_results_df(results_df, args.output_dir)
+
+
+
+
+def generate_plots_for_paper(df, output_dir):
+    # histogram of hit likelihood versus decoy likelihood (with line showing mean)
+    # histogram of sampled mol tanimoto similarity versus decoy tanimoto similarity (with line showing mean)
+    # histogram of maximum common substructure of sampled versus decoy
+    # histogram of proportion common substructure of sampled versus decoy
+    # barplot of means (above) with 95% confidence intervals
+    # for each decile of tanimoto similarity and each decile of proportion common structure generate images of
+    # the sampled smiles and the true smiles 
+    
+
+    pass
 
 if __name__ == "__main__":
     main()

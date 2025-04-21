@@ -26,6 +26,8 @@ class VoxToSmilesModel(LightningModule):
         compile: bool = False,
     ) -> None:
         super().__init__()
+        if "torch_dtype" not in config:
+            config.torch_dtype = torch.bfloat16
         self.save_hyperparameters(logger=False)
 
         self.tokenizer = build_smiles_tokenizer()
