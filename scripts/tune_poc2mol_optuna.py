@@ -29,7 +29,7 @@ def hydra_train(overrides):
     abs_cfg_dir = os.path.join(repo_root, "configs")
     print(f"Set config dir to {abs_cfg_dir}")
     with initialize_config_dir(version_base="1.3", config_dir=abs_cfg_dir):
-        cfg = compose(config_name="train.yaml", overrides=overrides)
+        cfg = compose(config_name="train.yaml", overrides=overrides, return_hydra_config=True)
         HydraConfig.instance().set_config(cfg)
 
     # The shared train() util returns (metric_dict, object_dict)
