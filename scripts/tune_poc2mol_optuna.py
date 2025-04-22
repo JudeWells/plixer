@@ -7,6 +7,7 @@ from omegaconf import OmegaConf
 from hydra import compose, initialize_config_dir
 from src.train import train as run_train_fn
 from src.utils import get_metric_value
+from hydra.core.hydra_config import HydraConfig
 
 # Ensure project root is on PYTHONPATH via rootutils (expects .project-root marker)
 rootutils.setup_root(__file__, indicator=".project-root", pythonpath=True)
@@ -29,6 +30,7 @@ def hydra_train(overrides):
     print(f"Set config dir to {abs_cfg_dir}")
     with initialize_config_dir(version_base="1.3", config_dir=abs_cfg_dir):
         cfg = compose(config_name="train.yaml", overrides=overrides)
+        HydraConfig.instance().set_config(cfg)
 
     # The shared train() util returns (metric_dict, object_dict)
     metric_dict, _ = run_train_fn(cfg)
