@@ -4,7 +4,7 @@ import os
 import optuna
 import rootutils
 from omegaconf import OmegaConf
-from hydra import initialize, compose
+from hydra import compose, initialize_config_dir
 from src.train import train as run_train_fn
 from src.utils import get_metric_value
 
@@ -27,7 +27,7 @@ def hydra_train(overrides):
 
     abs_cfg_dir = os.path.join(repo_root, "configs")
     print(f"Set config dir to {abs_cfg_dir}")
-    with initialize(version_base="1.3", config_path=abs_cfg_dir):
+    with initialize_config_dir(version_base="1.3", config_dir=abs_cfg_dir):
         cfg = compose(config_name="train.yaml", overrides=overrides)
 
     # The shared train() util returns (metric_dict, object_dict)
