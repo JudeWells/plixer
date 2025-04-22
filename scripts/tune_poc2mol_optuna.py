@@ -47,7 +47,7 @@ def build_objective(experiment_name: str, max_epochs: int):
         # Suggest hyper‑parameters
         lr = trial.suggest_float("lr", 5e-6, 2e-3, log=True)
         dropout = trial.suggest_float("dropout_prob", 0.0, 0.2)
-        batch_size = trial.suggest_categorical("batch_size", [4, 8, 16, 32])
+        batch_size = trial.suggest_categorical("batch_size", [10, 16])
         f_maps = trial.suggest_categorical("fmaps", [64, 128])
         num_levels = trial.suggest_categorical("num_levels", [5, 7, 9, 11])
 
