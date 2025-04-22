@@ -25,7 +25,9 @@ def hydra_train(overrides):
     repo_root = rootutils.find_root(search_from=__file__, indicator=".project-root")
     os.chdir(repo_root)
 
-    with initialize(version_base="1.3", config_path="configs"):
+    abs_cfg_dir = os.path.join(repo_root, "configs")
+    print(f"Set config dir to {abs_cfg_dir}")
+    with initialize(version_base="1.3", config_path=abs_cfg_dir):
         cfg = compose(config_name="train.yaml", overrides=overrides)
 
     # The shared train() util returns (metric_dict, object_dict)
