@@ -32,15 +32,15 @@ data:
 model:
   override_optimizer_on_load: true
   config:
-    lr: 1e-3
+    lr: 5e-5
     scheduler:
       type: "warmup_stable_decay"  # Options: step, linear, cosine, cosine_with_restarts, etc.
       num_warmup_steps: 900
       num_stable_steps: 200000
       num_decay_steps: 200000
-      min_lr_ratio: 0.05
+      min_lr_ratio: 0.1
       interval: "step"
 
 trainer:
   val_check_interval: 6000
-  accumulate_grad_batches: 16
+  accumulate_grad_batches: 2

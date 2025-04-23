@@ -8,7 +8,7 @@ data_path: "../geom/rdkit_folder/drugs"
 num_workers: 0
 config:
   _target_: src.data.common.voxelization.config.Vox2SmilesDataConfig
-  batch_size: 12
+  batch_size: 2
   max_smiles_len: 200
   has_protein: false
 train_dataset:
