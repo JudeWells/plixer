@@ -43,4 +43,4 @@ model:
 
 trainer:
   val_check_interval: 6000
-  accumulate_grad_batches: 32
+  accumulate_grad_batches: 16
