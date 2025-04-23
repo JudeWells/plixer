@@ -6,6 +6,7 @@
 # -l h_vmem=64G
 #$ -l gpu=true
 #$ -l gpu_type=(a40|a100|a100_80)
+#$ -R y
 #$ -l h_rt=71:55:30
 #$ -S /bin/bash
 #$ -N v2sPlind
