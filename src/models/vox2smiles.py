@@ -97,8 +97,7 @@ class VoxToSmilesModel(LightningModule):
         self.train_loss(loss)
         self.log("train/loss", self.train_loss, on_step=False, on_epoch=True, prog_bar=True)
         self.log("train/batch_loss", loss, on_step=True, on_epoch=False, prog_bar=True)
-        if 'poc2mol_loss' in batch:
-            self.train_sample_counter += len(batch['pixel_values'])
+        if 'poc2mol_loss' in batch and batch['poc2mol_loss'] is not None:
             elements_with_loss_mask = batch['poc2mol_loss'] > 0
             self.train_poc2mol_sample_counter += elements_with_loss_mask.int().sum()
             self.log("train/proportion_from_poc2mol", self.train_poc2mol_sample_counter / self.train_sample_counter, on_step=True, on_epoch=True, prog_bar=True, batch_size=len(batch['pixel_values']))
