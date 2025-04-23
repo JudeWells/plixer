@@ -27,7 +27,8 @@ cd $ROOT_DIR
 python src/train.py \
 experiment=train_vox2smiles_combined_hiqbind \
 data.num_workers=0 \
-data.config.batch_size=2 \
+data.config.batch_size=4 \
 task_name="CombinedHiQBindNoCkpt" \
+trainer.accumulate_grad_batches=4 \
 ckpt_path=null
 date
