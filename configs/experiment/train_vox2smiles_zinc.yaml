@@ -6,7 +6,7 @@ defaults:
   - override /logger: wandb.yaml
 
 task_name: "vox2smilesZinc"
-tags: ["dev", "resume_from_ckpt"]
+tags: ["vox2smilesZinc"]
 train: True
 test: True
 optimized_metric: "val/loss"
@@ -32,4 +32,4 @@ model:
   override_optimizer_on_load: true
 
 trainer:
-  val_check_interval: 1500
+  val_check_interval: 3000
