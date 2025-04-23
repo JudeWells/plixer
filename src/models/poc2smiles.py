@@ -95,6 +95,7 @@ class CombinedProteinToSmilesModel(L.LightningModule):
             Loss value
         """
         # Get optimizers
+
         opt = self.optimizers()
         
         # Get protein voxels and SMILES tokens

@@ -14,12 +14,12 @@ config:
   num_channels: 9
   qkv_bias: True
   encoder_stride: 2
-  lr: 5e-5
+  lr: 1e-3
   torch_dtype: "bfloat16"
   scheduler:
-    type: "cosine_with_min_lr"  # Options: step, linear, cosine, cosine_with_restarts, etc.
-    num_warmup_steps: 100
-    min_lr_rate: 0.1
-    num_training_steps: 20_000
-    interval: "step"  # or "epoch"
-    frequency: 1
+    type: "warmup_stable_decay"  # Options: step, linear, cosine, cosine_with_restarts, etc.
+    num_warmup_steps: 300
+    num_stable_steps: 200000
+    num_decay_steps: 200000
+    min_lr_ratio: 0.05
+    interval: "step"

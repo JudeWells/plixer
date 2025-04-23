@@ -15,7 +15,7 @@ import io
 from PIL import Image, ImageDraw, ImageFont
 from src.models.modeling_vit_3d import ViTModel3D
 from src.data.common.tokenizers.smiles_tokenizer import build_smiles_tokenizer
-from src.utils.metrics import accuracy_from_outputs
+from src.utils.metrics import accuracy_from_outputs, calculate_validity, calculate_novelty, calculate_uniqueness
 
 
 class VoxToSmilesModel(LightningModule):
@@ -80,7 +80,9 @@ class VoxToSmilesModel(LightningModule):
         self.test_acc = MeanMetric()
 
         self.override_optimizer_on_load = override_optimizer_on_load
-
+        self.train_sample_counter = 0
+        self.train_poc2mol_sample_counter = 0
+        self.val_validity = MeanMetric()
     def forward(self, pixel_values, labels=None):
         if labels is not None:
             return self.model(pixel_values=pixel_values, labels=labels, return_dict=True)
@@ -95,6 +97,15 @@ class VoxToSmilesModel(LightningModule):
         self.train_loss(loss)
         self.log("train/loss", self.train_loss, on_step=False, on_epoch=True, prog_bar=True)
         self.log("train/batch_loss", loss, on_step=True, on_epoch=False, prog_bar=True)
+        if 'poc2mol_loss' in batch:
+            self.train_sample_counter += len(batch['pixel_values'])
+            elements_with_loss_mask = batch['poc2mol_loss'] > 0
+            self.train_poc2mol_sample_counter += elements_with_loss_mask.int().sum()
+            self.log("train/proportion_from_poc2mol", self.train_poc2mol_sample_counter / self.train_sample_counter, on_step=True, on_epoch=True, prog_bar=True, batch_size=len(batch['pixel_values']))
+            self.log("train/n_samples", self.train_sample_counter, on_step=True, on_epoch=True, prog_bar=True, batch_size=len(batch['pixel_values']))
+            self.log("train/n_poc2mol_samples", self.train_poc2mol_sample_counter, on_step=True, on_epoch=True, prog_bar=True, batch_size=len(batch['pixel_values']))
+            if elements_with_loss_mask.any():
+                self.log("train/poc2mol_loss", batch['poc2mol_loss'][elements_with_loss_mask].mean(), on_step=True, on_epoch=True, prog_bar=True, batch_size=elements_with_loss_mask.int().sum())
         return loss
 
     def validation_step(self, batch, batch_idx):
@@ -107,6 +118,12 @@ class VoxToSmilesModel(LightningModule):
         accuracy = accuracy_from_outputs(outputs, labels, start_ix=1, ignore_index=0)
         self.val_acc(accuracy)
         self.log("val/accuracy", self.val_acc, on_step=False, on_epoch=True, prog_bar=True)
+        if batch_idx % 200 == 0:
+            generated_smiles = self.generate_smiles(pixel_values)
+            if len(generated_smiles) > 0:
+                validity = calculate_validity(generated_smiles)
+                self.val_validity(validity)
+                self.log("val/validity", self.val_validity, on_step=False, on_epoch=True)
         if batch_idx < 3:
             self.visualize_smiles(batch, outputs)
         return loss
@@ -144,7 +161,7 @@ class VoxToSmilesModel(LightningModule):
             }
         else:
             # Use transformers' get_scheduler for other scheduler types
-            num_training_steps = self.trainer.estimated_stepping_batches
+            num_training_steps = scheduler_config.get("num_training_steps", self.trainer.estimated_stepping_batches)
             num_warmup_steps = scheduler_config.get("num_warmup_steps", 0)
             
             if isinstance(num_warmup_steps, float) and 0 <= num_warmup_steps < 1:
@@ -158,6 +175,10 @@ class VoxToSmilesModel(LightningModule):
                 scheduler_specific_kwargs["num_cycles"] = scheduler_config.get("num_cycles", 1)
             elif scheduler_type == "cosine_with_min_lr":
                 scheduler_specific_kwargs["min_lr_rate"] = scheduler_config.get("min_lr_rate", 0.1)
+            elif scheduler_type == "warmup_stable_decay":
+                scheduler_specific_kwargs["num_stable_steps"] = scheduler_config["num_stable_steps"]
+                scheduler_specific_kwargs["num_decay_steps"] = scheduler_config["num_decay_steps"]
+                scheduler_specific_kwargs["min_lr_ratio"] = scheduler_config.get("min_lr_ratio", 0.1)
             
             scheduler = get_scheduler(
                 name=scheduler_type,

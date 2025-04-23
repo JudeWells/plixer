@@ -1,0 +1,46 @@
+# @package _global_
+# train vox2smiles model on zinc data and outputs of poc2mol model
+defaults:
+  - _self_
+  - override /data: vox2smiles_combined_data_from_hiqbind
+  - override /model: vox2smiles
+  - override /logger: wandb.yaml
+
+task_name: "vox2smilesZincAndPoc2MolOutputsHiqBind"
+tags: ["combined_data"]
+train: True
+test: True
+optimized_metric: "val/loss"
+ckpt_path: null
+seed: 42
+
+logger:
+  wandb:
+    project: "voxelSmiles"
+    entity: "cath"
+    group: "vox2smilesZinc"
+    job_type: "train"
+    tags: ["zinc", "hiqbind"]
+    save_dir: "${paths.output_dir}"
+    offline: False
+    id: null # pass correct id to resume experiment!
+
+data:
+  config:
+    include_hydrogens: false
+
+model:
+  override_optimizer_on_load: true
+  config:
+    lr: 1e-3
+    scheduler:
+      type: "warmup_stable_decay"  # Options: step, linear, cosine, cosine_with_restarts, etc.
+      num_warmup_steps: 300
+      num_stable_steps: 200000
+      num_decay_steps: 200000
+      min_lr_ratio: 0.05
+      interval: "step"
+
+trainer:
+  val_check_interval: 6000
+  accumulate_grad_batches: 32

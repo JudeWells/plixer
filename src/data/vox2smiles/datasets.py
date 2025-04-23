@@ -28,15 +28,18 @@ def get_collate_function(tokenizer):
         pixel_values = torch.stack([item['pixel_values'] for item in batch])
         text_batch = {
             'input_ids': torch.stack([item['input_ids'] for item in batch]),
-            'attention_mask': torch.stack([item['attention_mask'] for item in batch])
+            'attention_mask': torch.stack([item['attention_mask'] for item in batch]),
         }
+        if 'poc2mol_loss' in batch[0]:
+            text_batch['poc2mol_loss'] = torch.tensor([item['poc2mol_loss'] for item in batch])
         text_batch = smiles_collator(text_batch)
         smiles_str = [item['smiles_str'] for item in batch]
         return {
             'pixel_values': pixel_values,
             'input_ids': text_batch['input_ids'],
             'attention_mask': text_batch['attention_mask'],
-            'smiles_str': smiles_str
+            'smiles_str': smiles_str,
+            'poc2mol_loss': text_batch.get('poc2mol_loss', None)
         }
     
     return collate_fn
@@ -417,9 +420,11 @@ class CombinedDataset(Dataset):
             if result['poc2mol_loss'] < self.max_poc2mol_loss:
                 return result
             else:
-                return self.vox2smiles_dataset[idx % self.n_vox2smiles]
+                result =  self.vox2smiles_dataset[idx % self.n_vox2smiles]
+                result['poc2mol_loss'] = -1
         else:
             # Sample from Vox2Smiles dataset
             idx_vox2smiles = idx % self.n_vox2smiles
             result = self.vox2smiles_dataset[idx_vox2smiles]
-            return result
+            result['poc2mol_loss'] = -1
+        return result
