@@ -35,7 +35,7 @@ model:
     lr: 1e-3
     scheduler:
       type: "warmup_stable_decay"  # Options: step, linear, cosine, cosine_with_restarts, etc.
-      num_warmup_steps: 300
+      num_warmup_steps: 900
       num_stable_steps: 200000
       num_decay_steps: 200000
       min_lr_ratio: 0.05
