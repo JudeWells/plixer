@@ -30,7 +30,7 @@ data:
     include_hydrogens: false
 
 model:
-  override_optimizer_on_load: true
+  override_optimizer_on_load: false
   config:
     lr: 5e-5
     scheduler:
