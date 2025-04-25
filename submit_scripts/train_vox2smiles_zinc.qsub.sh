@@ -27,7 +27,6 @@ export PYTHONPATH=$ROOT_DIR:$PYTHONPATH
 cd $ROOT_DIR
 python src/train.py \
 experiment=train_vox2smiles_zinc \
-data.num_workers=0 \
 data.config.batch_size=24 \
 model.config.lr=5e-5 \
 trainer.val_check_interval=5000 \

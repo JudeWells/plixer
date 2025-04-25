@@ -9,3 +9,4 @@ qsub_logs/
 outputs/
 evaluation_results/
 nohup.out
+label_images/
