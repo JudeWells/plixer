@@ -27,7 +27,7 @@ export HYDRA_FULL_ERROR=1
 export PYTHONPATH=$ROOT_DIR:$PYTHONPATH
 cd $ROOT_DIR
 python src/train.py \
-+experiment=train_vox2smiles_combined \
+experiment=train_vox2smiles_combined \
 data.num_workers=0 \
 data=vox2smiles_combined_data_from_plinder_train \
 data.config.batch_size=2 \

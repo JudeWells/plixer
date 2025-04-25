@@ -32,5 +32,6 @@ data.config.batch_size=2 \
 task_name="CombinedHiQBindNoCkpt" \
 trainer.accumulate_grad_batches=2 \
 model.config.lr=5e-5 \
-ckpt_path=null
+seed=1234 \
+ckpt_path=logs/CombinedHiQBindNoCkpt/runs/2025-04-23_17-31-05/checkpoints/last.ckpt
 date
