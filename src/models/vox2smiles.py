@@ -124,7 +124,10 @@ class VoxToSmilesModel(LightningModule):
                 self.val_validity(validity)
                 self.log("val/validity", self.val_validity, on_step=False, on_epoch=True)
         if batch_idx < 3:
-            self.visualize_smiles(batch, outputs)
+            try:
+                self.visualize_smiles(batch, outputs)
+            except Exception as e:
+                print("Error visualizing smiles: ", e)
         return loss
 
     def test_step(self, batch, batch_idx):
