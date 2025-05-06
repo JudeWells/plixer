@@ -13,7 +13,7 @@
 #$ -R y
 #$ -l h_rt=91:55:30
 #$ -S /bin/bash
-#$ -N CombiResume
+#$ -N CombiResume7e5
 #$ -t 1
 #$ -o /SAN/orengolab/nsp13/VoxelDiffOuter/VoxelDiff2/qsub_logs/
 #$ -wd /SAN/orengolab/nsp13/VoxelDiffOuter/VoxelDiff2/
@@ -36,5 +36,7 @@ data.config.batch_size=2 \
 task_name="CombinedHiQBindCkptFrmPrevCombined" \
 trainer.accumulate_grad_batches=2 \
 model.config.lr=5e-5 \
-ckpt_path="logs/vox2smilesZincAndPoc2MolOutputs/runs/2025-03-22_21-18-58_from_kaspian/checkpoints/last.ckpt"
+ckpt_path="logs/vox2smilesZincAndPoc2MolOutputs/runs/2025-03-22_21-18-58_from_kaspian/checkpoints/last.ckpt" \
+model.override_optimizer_on_load=True \
+model.lr=7e-5
 date
