@@ -35,8 +35,7 @@ data.num_workers=0 \
 data.config.batch_size=2 \
 task_name="CombinedHiQBindCkptFrmPrevCombined" \
 trainer.accumulate_grad_batches=2 \
-model.config.lr=5e-5 \
+model.config.lr=7e-5 \
 ckpt_path="logs/vox2smilesZincAndPoc2MolOutputs/runs/2025-03-22_21-18-58_from_kaspian/checkpoints/last.ckpt" \
-model.override_optimizer_on_load=True \
-model.lr=7e-5
+model.override_optimizer_on_load=True
 date
