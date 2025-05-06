@@ -1,6 +1,10 @@
 #!/bin/bash
 
-# Train ProFam
+# Train vox2smiles combined model using a checkpoint from here on kasp:
+# logs/vox2smilesZincAndPoc2MolOutputs/runs/2025-03-22_21-18-58
+# original training run can be seen here: 
+# https://wandb.ai/cath/voxelSmiles/runs/crz11hbc
+# this run was getting 95% SMILES recovery
 
 #$ -l tmem=127G
 # -l h_vmem=64G
@@ -9,7 +13,7 @@
 #$ -R y
 #$ -l h_rt=91:55:30
 #$ -S /bin/bash
-#$ -N CombiCkpt1
+#$ -N CombiResume
 #$ -t 1
 #$ -o /SAN/orengolab/nsp13/VoxelDiffOuter/VoxelDiff2/qsub_logs/
 #$ -wd /SAN/orengolab/nsp13/VoxelDiffOuter/VoxelDiff2/
@@ -32,5 +36,5 @@ data.config.batch_size=2 \
 task_name="CombinedHiQBindCkptFrmPrevCombined" \
 trainer.accumulate_grad_batches=2 \
 model.config.lr=5e-5 \
-ckpt_path="logs/vox2smilesZincAndPoc2MolOutputs/runs/2025-03-22_21-18-58/checkpoints/last.ckpt"
+ckpt_path="logs/vox2smilesZincAndPoc2MolOutputs/runs/2025-03-22_21-18-58_from_kaspian/checkpoints/last.ckpt"
 date
