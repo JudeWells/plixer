@@ -1,6 +1,7 @@
 import os
 import copy
 import torch
+import numpy as np
 import yaml
 import argparse
 import hydra
@@ -25,14 +26,11 @@ import pandas as pd
 """
 This script evaluates a combined model
 where we have a checkpoint for the poc2mol model
-which has been trained on the PDBBind-refined dataset
+which has been trained on the HiQBind dataset
 then we combine this with a vox2smiles model which has
 been trained on the Zinc dataset and the outputs of the 
 poc2mol dataset.
 
-Ideally, we should evaluate the model on whcih has been 
-trained on the plinder dataset train split on the plinder
-dataset test split of plinder.
 """
 
 def parse_args():
@@ -40,20 +38,20 @@ def parse_args():
     parser.add_argument(
         "--ckpt_path", 
         type=str, 
-        default="logs/vox2smilesZincAndPoc2MolOutputs/runs/2025-03-22_21-18-58/checkpoints/last.ckpt",
+        default="logs/CombinedHiQBindCkptFrmPrevCombined/runs/2025-05-06_20-51-46/checkpoints/last.ckpt",
         help="Path to the model checkpoint"
     )
     parser.add_argument(
         "--output_dir", 
         type=str, 
-        default="evaluation_results",
+        default="evaluation_results/CombinedHiQBindCkptFrmPrevCombined_2025-05-06_v3_member_zero_v3",
         help="Directory to save evaluation results"
     )
     parser.add_argument(
         "--pdb_dir", 
         type=str, 
         # default="../PDBbind_v2020_refined-set",
-        default="../plinder/test_arrays",
+        default="../hiqbind/parquet/test/",
         help="Directory to save evaluation results"
     )
     parser.add_argument(
@@ -77,7 +75,8 @@ def build_parquet_test_dataloader(poc2mol_config: DictConfig, dtype: str, pdb_di
     test_config = build_test_config(poc2mol_config, dtype)
     dataset = ParquetDataset(
         config=test_config,
-        data_path=pdb_dir
+        data_path=pdb_dir,
+        use_cluster_member_zero=True
     )
     return DataLoader(dataset, batch_size=1, shuffle=True)
 
@@ -136,19 +135,15 @@ def get_max_common_substructure_num_atoms(smiles1, smiles2):
     try:
         mol1 = Chem.MolFromSmiles(smiles1)
         mol2 = Chem.MolFromSmiles(smiles2)
-        # Return None if either SMILES fails to convert to a molecule
         if mol1 is None or mol2 is None:
             return None
 
-        # Compute the maximum common substructure (MCS)
         mcs_result = rdFMCS.FindMCS([mol1, mol2])
-        # Create a molecule from the MCS SMARTS string
         mcs_mol = Chem.MolFromSmarts(mcs_result.smartsString)
-        # If the MCS is not found, mcs_mol might be None
         if mcs_mol is None:
             return 0
-        # Return the number of atoms in the MCS
-        return mcs_mol.GetNumAtoms()
+        # Use GetNumHeavyAtoms() instead of GetNumAtoms()
+        return mcs_mol.GetNumHeavyAtoms()
     except Exception as e:
         print("Error computing MCS:", e)
         return None
@@ -159,7 +154,8 @@ def get_max_common_substructure_num_atoms(smiles1, smiles2):
 def evaluate_combined_model(
         combined_model: CombinedProteinToSmilesModel, 
         test_dataloader: DataLoader,
-        output_dir="evaluation_results"
+        output_dir="evaluation_results",
+        save_voxels: bool = False
         ):
     os.makedirs(output_dir, exist_ok=True)
     # Get tokenizer configuration from the model config
@@ -179,9 +175,24 @@ def evaluate_combined_model(
         if 'smiles' in batch:
             batch = add_smiles_to_batch(batch, tokenizer, max_smiles_len)
         # Get the model output
-        result = combined_model.forward(batch['protein'], batch['input_ids'], decoy_labels)
+        result = combined_model.forward(
+            batch['protein'], 
+            batch['input_ids'], 
+            decoy_labels, 
+            ligand_voxels=batch['ligand']
+            )
         decoy_labels = batch['input_ids'] # use previous batch as decoy labels
-        
+        if save_voxels:
+            assert len(batch['ligand']) == 1
+            os.makedirs(f'{output_dir}/voxels', exist_ok=True)
+            poc2mol_output_path = f'{output_dir}/voxels/poc2mol_output_{batch["name"][0]}_{str(int(round(result["poc2mol_loss"], 3) * 1000)).zfill(4)}.npy'
+            true_ligand_voxels_path = f'{output_dir}/voxels/true_ligand_voxels_{batch["name"][0]}_{str(int(round(result["poc2mol_loss"], 3) * 1000)).zfill(4)}.npy'
+            protein_voxels_path = f'{output_dir}/voxels/protein_voxels_{batch["name"][0]}_{str(int(round(result["poc2mol_loss"], 3) * 1000)).zfill(4)}.npy'
+            # save as numpy arrays
+            np.save(poc2mol_output_path, result['predicted_ligand_voxels'].detach().float().cpu().numpy())
+            np.save(true_ligand_voxels_path, batch['ligand'].detach().float().cpu().numpy())
+            np.save(protein_voxels_path, batch['protein'].detach().float().cpu().numpy())
+
         # convert_smiles_to_rdkit_molecule
         true_smiles = batch['smiles'][0].replace(tokenizer.bos_token, '').replace(tokenizer.eos_token, '').replace("[BOS]", "").replace("[EOS]", "")
         sampled_smiles = result['sampled_smiles'][0].replace("[BOS]", "").replace("[EOS]", "")
@@ -212,7 +223,7 @@ def evaluate_combined_model(
             if len(visualisation_batch) == 9:
                 visualize_2d_molecule_batch(
                     visualisation_batch, 
-                    f'evaluation_results/batch_{vis_batch_idx}.png'
+                    f'{output_dir}/batch_{vis_batch_idx}.png'
                     )
                 visualisation_batch = []
                 vis_batch_idx += 1
@@ -227,11 +238,18 @@ def evaluate_combined_model(
             true_num_heavy_atoms = Chem.MolFromSmiles(true_smiles).GetNumHeavyAtoms()
         except:
             true_num_heavy_atoms = None
-        if sampled_smiles is not None:
+            
+        # Calculate prop_common_structure for both sampled and decoy
+        if sampled_smiles is not None and true_num_heavy_atoms is not None:
             try:
-                prop_common_structure = mcs_num_atoms / true_num_heavy_atoms
+                prop_common_structure = mcs_num_atoms / true_num_heavy_atoms if mcs_num_atoms is not None else None
+                decoy_prop_common_structure = decoy_mcs_num_atoms / true_num_heavy_atoms if decoy_mcs_num_atoms is not None else None
             except:
                 prop_common_structure = None
+                decoy_prop_common_structure = None
+        else:
+            prop_common_structure = None
+            decoy_prop_common_structure = None
 
         decoy_smiles = true_smiles # use last batch smiles as decoy smiles
         
@@ -250,7 +268,11 @@ def evaluate_combined_model(
                 'decoy_mcs_num_atoms': decoy_mcs_num_atoms,
                 'true_vs_decoy_mcs_num_atoms': true_vs_decoy_mcs_num_atoms,
                 'prop_common_structure': prop_common_structure,
-                'true_num_heavy_atoms': true_num_heavy_atoms
+                'decoy_prop_common_structure': decoy_prop_common_structure,
+                'true_num_heavy_atoms': true_num_heavy_atoms,
+                'poc2mol_bce': result['poc2mol_bce'],
+                'poc2mol_dice': result['poc2mol_dice'],
+                'poc2mol_loss': result['poc2mol_loss']
             }
         )
         df = pd.DataFrame(result_rows)
@@ -275,7 +297,7 @@ def main():
     )
     combined_model.eval()
     complex_dataset_config = config['data']['train_dataset']['poc2mol_output_dataset']['complex_dataset']['config']
-    if 'plinder' in args.pdb_dir:
+    if 'plinder' in args.pdb_dir or 'hiqbind' in args.pdb_dir:
         test_dataloader = build_parquet_test_dataloader(
             complex_dataset_config, 
             args.dtype,
@@ -290,7 +312,8 @@ def main():
     results = evaluate_combined_model(
         combined_model, 
         test_dataloader,
-        output_dir=args.output_dir
+        output_dir=args.output_dir,
+        save_voxels=True
         )
     results_df = pd.DataFrame(results)
     for c in results_df.columns:

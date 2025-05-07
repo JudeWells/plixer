@@ -312,6 +312,98 @@ def build_ligand_clusters(meta_df: pd.DataFrame, smiles_col: str = "Ligand SMILE
     return mapping
 
 
+def calculate_protein_similarity(seq1: str, seq2: str) -> float:
+    """Calculate sequence similarity between two protein sequences using MMSEQS."""
+    with tempfile.TemporaryDirectory() as tmpd:
+        # Write sequences to temporary fasta files
+        seq1_path = os.path.join(tmpd, "seq1.fasta")
+        seq2_path = os.path.join(tmpd, "seq2.fasta")
+        with open(seq1_path, "w") as f:
+            f.write(f">seq1\n{seq1}\n")
+        with open(seq2_path, "w") as f:
+            f.write(f">seq2\n{seq2}\n")
+        
+        # Run MMSEQS search
+        out_prefix = os.path.join(tmpd, "mmseqs_out")
+        cmd = [
+            "mmseqs", "search",
+            seq1_path,
+            seq2_path,
+            out_prefix,
+            tmpd,
+            "--min-seq-id", "0.0",
+            "-c", "0.0",
+            "--threads", "1",
+            "--remove-tmp-files", "1",
+            "-v", "1",
+        ]
+        subprocess.run(cmd, check=True)
+        
+        # Parse results
+        result_file = out_prefix + ".m8"
+        if not os.path.exists(result_file):
+            return 0.0
+        
+        with open(result_file) as f:
+            for line in f:
+                parts = line.strip().split("\t")
+                if len(parts) >= 3:
+                    return float(parts[2])  # Return sequence identity
+        return 0.0
+
+
+def calculate_ligand_similarity(smiles1: str, smiles2: str) -> float:
+    """Calculate Tanimoto similarity between two ligands using ECFP4 fingerprints."""
+    mol1 = Chem.MolFromSmiles(smiles1)
+    mol2 = Chem.MolFromSmiles(smiles2)
+    if mol1 is None or mol2 is None:
+        return 0.0
+    
+    fp1 = AllChem.GetMorganFingerprintAsBitVect(mol1, 2, nBits=1024)
+    fp2 = AllChem.GetMorganFingerprintAsBitVect(mol2, 2, nBits=1024)
+    return DataStructs.TanimotoSimilarity(fp1, fp2)
+
+
+def calculate_similarity_scores(test_df: pd.DataFrame, train_df: pd.DataFrame) -> pd.DataFrame:
+    """Calculate maximum similarity scores for test set entries relative to training set."""
+    # Extract sequences and SMILES
+    test_seqs = {row["system_id"]: extract_protein_sequence(row["protein_path"]) for _, row in test_df.iterrows()}
+    train_seqs = {row["system_id"]: extract_protein_sequence(row["protein_path"]) for _, row in train_df.iterrows()}
+    
+    test_smiles = {row["system_id"]: row["smiles"] for _, row in test_df.iterrows()}
+    train_smiles = {row["system_id"]: row["smiles"] for _, row in train_df.iterrows()}
+    
+    # Calculate maximum similarities
+    max_protein_sims = {}
+    max_ligand_sims = {}
+    
+    for test_id in tqdm(test_seqs.keys(), desc="Calculating similarity scores"):
+        test_seq = test_seqs[test_id]
+        test_smiles = test_smiles[test_id]
+        
+        # Calculate protein similarities
+        protein_sims = []
+        for train_seq in train_seqs.values():
+            if train_seq:  # Skip empty sequences
+                sim = calculate_protein_similarity(test_seq, train_seq)
+                protein_sims.append(sim)
+        max_protein_sims[test_id] = max(protein_sims) if protein_sims else 0.0
+        
+        # Calculate ligand similarities
+        ligand_sims = []
+        for train_smiles in train_smiles.values():
+            if train_smiles:  # Skip empty SMILES
+                sim = calculate_ligand_similarity(test_smiles, train_smiles)
+                ligand_sims.append(sim)
+        max_ligand_sims[test_id] = max(ligand_sims) if ligand_sims else 0.0
+    
+    # Add similarity scores to test dataframe
+    test_df["max_protein_similarity"] = test_df["system_id"].map(max_protein_sims)
+    test_df["max_ligand_similarity"] = test_df["system_id"].map(max_ligand_sims)
+    
+    return test_df
+
+
 def main():
     parser = argparse.ArgumentParser(description="Create HiQBind parquet dataset compatible with ParquetDataset")
     parser.add_argument("--raw_dir", default="../hiqbind/raw_data_hiq_sm", help="Directory containing raw HiQBind structures")
@@ -322,6 +414,7 @@ def main():
     parser.add_argument("--mmseqs_cluster_tsv", default="../hiqbind/protein_clusters.tsv", help="Path to mmseqs cluster TSV (will be generated if absent)")
     parser.add_argument("--val_fraction", type=float, default=0.1, help="Fraction of train clusters to use as validation")
     parser.add_argument("--test_year_start", type=int, default=2020, help="Year (inclusive) for test split")
+    parser.add_argument("--calculate_similarities", action="store_true", help="Calculate similarity scores for test set")
 
     args = parser.parse_args()
 
@@ -428,6 +521,20 @@ def main():
     index_path = os.path.join(args.output_dir, "index.csv")
     index_df.to_csv(index_path, index=False)
     log.info(f"Created index file with {len(saved_files)} parquet files at {index_path}")
+
+    # After creating the dataset, calculate similarity scores if requested
+    if args.calculate_similarities:
+        log.info("Calculating similarity scores for test set...")
+        test_df = pd.concat([pd.read_parquet(f) for f in glob.glob(os.path.join(args.output_dir, "test", "*.parquet"))])
+        train_df = pd.concat([pd.read_parquet(f) for f in glob.glob(os.path.join(args.output_dir, "train", "*.parquet"))])
+        
+        test_df = calculate_similarity_scores(test_df, train_df)
+        
+        # Save similarity scores
+        similarity_path = os.path.join(args.output_dir, "test_similarities.csv")
+        test_df[["system_id", "max_protein_similarity", "max_ligand_similarity"]].to_csv(similarity_path, index=False)
+        log.info(f"Saved similarity scores to {similarity_path}")
+    
     log.info("Dataset creation complete")
 
 if __name__ == "__main__":

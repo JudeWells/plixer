@@ -194,7 +194,7 @@ class ResidualUNetSE3D(AbstractUNet):
 
     def forward(self, x, labels=None):
         # run super forward method:
-        preds = super().forward(x)
+        preds = super().forward(x, labels=labels)
         return preds
 
 if __name__=="__main__":

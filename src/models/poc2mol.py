@@ -97,7 +97,13 @@ class Poc2Mol(LightningModule):
 
 
     def forward(self, prot_vox, labels=None):
-        return self.model(x=prot_vox, labels=labels)
+        pred_vox = self.model(x=prot_vox)
+        if labels is not None:
+            outputs = self.loss(pred_vox, labels)
+            outputs['pred_vox'] = pred_vox
+        else:
+            outputs = pred_vox
+        return outputs
 
     def training_step(self, batch, batch_idx):
         if "load_time" in batch:

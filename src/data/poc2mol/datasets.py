@@ -246,10 +246,11 @@ class ParquetDataset(Dataset):
         translation: float = None,
         rotate: bool = None,
         cache_size: int = 10,
+        use_cluster_member_zero: bool = False
     ):
         self.config = config
         self.data_path = data_path
-        
+        self.use_cluster_member_zero = use_cluster_member_zero
         indices_dir = os.path.join(data_path, 'indices')
         
         cluster_index_path = os.path.join(indices_dir, 'cluster_index.json')
@@ -334,8 +335,10 @@ class ParquetDataset(Dataset):
         # Get samples for this cluster
         cluster_samples = self.cluster_index[cluster_id]
         
-        # Select a random sample from this cluster
-        sample_info = np.random.choice(cluster_samples)
+        if self.use_cluster_member_zero:
+            sample_info = cluster_samples[0]
+        else:
+            sample_info = np.random.choice(cluster_samples)
         
         file_idx = sample_info['file_idx']
         row_idx = sample_info['row_idx']

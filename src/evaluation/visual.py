@@ -8,6 +8,73 @@ from rdkit import Chem
 from rdkit.Chem import Draw
 import os
 
+ALL_ANGLES = [
+            (0, 0),
+            (0, 45),
+            (0, 90),
+            (0, 135),
+            (0, 180),
+            (0, -45),
+            (0, -90),
+            (0, -135), 
+            (45, 0),
+            (45, 45),
+            (45, 90),
+            (45, 135),
+            (45, 180),
+            (45, -45),
+            (45, -90),
+            (45, -135),
+            # (90, 0),
+            (90, 45),
+            # (90, 90),
+            # (90, 135),
+            # (90, 180),
+            # (90, -45),
+            # (90, -90),
+            # (90, -135),
+            (135, 0),
+            (135, 45),
+            (135, 90),
+            (135, 135),
+            (135, 180),
+            (135, -45),
+            (135, -90),
+            (135, -135),
+            (180, 0),
+            (180, 45),
+            (180, 90),
+            (180, 135),
+            (180, 180),
+            (180, -45),
+            (180, -90),
+            (180, -135),
+            (-135, 0),
+            (-135, 45),
+            (-135, 90),
+            (-135, 135),
+            (-135, 180),
+            (-135, -45),
+            (-135, -90),
+            (-135, -135),    
+            (-45, 0),
+            (-45, 45),
+            (-45, 90),
+            (-45, 135),
+            (-45, 180),
+            (-45, -45),
+            (-45, -90),
+            (-45, -135),
+            (-90, 45)
+            # (-90, 0),# these just rotate in perpendicular to plane of view
+            # (-90, 90),
+            # (-90, 135),
+            # (-90, 180),
+            # (-90, -45),
+            # (-90, -90),
+            # (-90, -135),
+ 
+        ]
 
 def show_3d_voxel_lig_only(vox, angles=None, save_dir=None, identifier='lig'):
     if not isinstance(vox, np.ndarray):
@@ -20,11 +87,11 @@ def show_3d_voxel_lig_only(vox, angles=None, save_dir=None, identifier='lig'):
     colors[1] = mcolors.to_rgba('red')  # oxygen_ligand
     colors[2] = mcolors.to_rgba('blue')  # nitrogen_ligand
     colors[3] = mcolors.to_rgba('yellow')  # sulfur_ligand
-    colors[4] = mcolors.to_rgba('magenta')  # chlorine_ligand
-    colors[5] = mcolors.to_rgba('magenta')  # fluorine_ligand
+    colors[4] = mcolors.to_rgba('cyan')  # chlorine_ligand
+    colors[5] = mcolors.to_rgba('darkcyan')  # fluorine_ligand
     colors[6] = mcolors.to_rgba('magenta')  # iodine_ligand
-    colors[7] = mcolors.to_rgba('magenta')  # bromine_ligand
-    colors[8] = mcolors.to_rgba('cyan')  # other_ligand
+    colors[7] = mcolors.to_rgba('brown')  # bromine_ligand
+    colors[8] = mcolors.to_rgba('purple')  # other_ligand
 
     # Set transparency for all colors
     colors[:, 3] = 0.2
@@ -278,3 +345,72 @@ def visualize_2d_molecule_batch(batch_data, output_path, n_cols=3):
     # Save high-resolution figure
     plt.savefig(output_path, dpi=300, bbox_inches='tight')
     plt.close()
+
+
+def show_3d_voxel_lig_in_protein(lig_vox, protein_vox, angles=None, save_dir=None, identifier='lig_in_protein'):
+    """
+    Visualizes ligand voxels inside protein pocket.
+    
+    Args:
+        lig_vox (np.ndarray): Ligand voxel grid of shape (n_channels, x, y, z)
+        protein_vox (np.ndarray): Protein voxel grid of shape (n_channels, x, y, z)
+        angles (list): List of (elevation, azimuth) angles to view from
+        save_dir (str): Directory to save images
+        identifier (str): Identifier for saved images
+    """
+    if not isinstance(lig_vox, np.ndarray):
+        lig_vox = lig_vox.detach().cpu().numpy()
+    if not isinstance(protein_vox, np.ndarray):
+        protein_vox = protein_vox.detach().cpu().numpy()
+        
+    lig_vox = (lig_vox > 0.5).astype(int)
+    protein_vox = (protein_vox > 0.5).astype(int)
+    
+    # Colors for ligand channels
+    lig_colors = np.zeros((lig_vox.shape[0], 4))
+    lig_colors[0] = mcolors.to_rgba('green')  # carbon_ligand
+    lig_colors[1] = mcolors.to_rgba('red')  # oxygen_ligand
+    lig_colors[2] = mcolors.to_rgba('blue')  # nitrogen_ligand
+    lig_colors[3] = mcolors.to_rgba('yellow')  # sulfur_ligand
+    lig_colors[4] = mcolors.to_rgba('cyan')  # chlorine_ligand
+    lig_colors[5] = mcolors.to_rgba('darkcyan')  # fluorine_ligand
+    lig_colors[6] = mcolors.to_rgba('magenta')  # iodine_ligand
+    lig_colors[7] = mcolors.to_rgba('brown')  # bromine_ligand
+    lig_colors[8] = mcolors.to_rgba('purple')  # other_ligand
+    
+    # Set transparency for ligand colors
+    lig_colors[:, 3] = 0.3
+    
+    # Color for protein (semi-transparent gray)
+    protein_color = np.array([0.7, 0.7, 0.7, 0.05])  # Gray with low opacity
+    protein_color[:4] = mcolors.to_rgba('pink')
+    protein_color[3] = 0.05
+    if angles is None:
+        # cover all angles in 45 degree increments
+        angles = ALL_ANGLES
+        
+    fig = plt.figure(figsize=(8, 8))
+    ax = fig.add_subplot(111, projection='3d')
+    
+    # Plot protein voxels first (as background)
+    for channel in range(protein_vox.shape[0]):
+        ax.voxels(protein_vox[channel], facecolors=protein_color, edgecolors=protein_color)
+    
+    # Plot ligand voxels on top
+    for channel in range(lig_vox.shape[0]):
+        ax.voxels(lig_vox[channel], facecolors=lig_colors[channel], edgecolors=lig_colors[channel])
+    
+    # Save images from different angles
+    for i, angle in enumerate(angles):
+        ax.view_init(elev=angle[0], azim=angle[1])
+        ax.axis('off')
+        ax.grid(False)
+        ax.set_xticks([])
+        ax.set_yticks([])
+        ax.set_zticks([])
+        
+        if save_dir is not None:
+            os.makedirs(save_dir, exist_ok=True)
+            plt.savefig(f"{save_dir}/{identifier}_angle_{i + 1}.png", dpi=300, bbox_inches='tight')
+            
+    plt.close(fig)
