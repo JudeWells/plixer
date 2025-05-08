@@ -9,7 +9,7 @@
 #$ -R y
 #$ -l h_rt=91:55:30
 #$ -S /bin/bash
-#$ -N CombiNoCkpt
+#$ -N CombiNoCkptV3
 #$ -t 1
 #$ -o /SAN/orengolab/nsp13/VoxelDiffOuter/VoxelDiff2/qsub_logs/
 #$ -wd /SAN/orengolab/nsp13/VoxelDiffOuter/VoxelDiff2/
@@ -33,5 +33,5 @@ task_name="CombinedHiQBindNoCkpt" \
 trainer.accumulate_grad_batches=2 \
 model.config.lr=5e-5 \
 seed=1234 \
-ckpt_path=logs/CombinedHiQBindNoCkpt/runs/2025-04-23_17-31-05/checkpoints/last.ckpt
+ckpt_path="logs/CombinedHiQBindNoCkpt/runs/2025-04-25_11-45-28/checkpoints/last.ckpt"
 date
