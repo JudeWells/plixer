@@ -33,7 +33,7 @@ python src/train.py \
 experiment=train_vox2smiles_combined_hiqbind \
 data.num_workers=0 \
 data.config.batch_size=2 \
-task_name="CombinedHiQBindHigherPropPoc2Mol" \
+task_name="CombinedHiQBAggPropPoc2Mol" \
 trainer.accumulate_grad_batches=2 \
 model.config.lr=1e-4 \
 ckpt_path="logs/CombinedHiQBindCkptFrmPrevCombined/runs/2025-05-06_20-51-46/checkpoints/last.ckpt" \
