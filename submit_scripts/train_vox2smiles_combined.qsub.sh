@@ -6,6 +6,7 @@
 # -l h_vmem=64G
 #$ -l gpu=true
 #$ -l gpu_type=(a40|a100|a100_80)
+#$ -R y
 #$ -l h_rt=71:55:30
 #$ -S /bin/bash
 #$ -N vox2smiCkpt2
@@ -25,7 +26,7 @@ export HYDRA_FULL_ERROR=1
 export PYTHONPATH=$ROOT_DIR:$PYTHONPATH
 cd $ROOT_DIR
 python src/train.py \
-+experiment=train_vox2smiles_combined \
+experiment=train_vox2smiles_combined \
 data.num_workers=0 \
 data.config.batch_size=2 \
 trainer.val_check_interval=5000 \

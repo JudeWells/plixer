@@ -39,7 +39,7 @@ pip install -r requirements.txt
 Modify this file in your dock2grid install to use float16:
 `venv/lib/python3.11/site-packages/docktgrid/config.py`
 ```python
-DTYPE = torch.float16
+DTYPE = torch.bfloat16
 ```
 
 ## Usage

@@ -2,7 +2,7 @@
 # train poc2mol only on data from plinder
 defaults:
   - _self_
-  - override /data: poc2mol_plinder_data
+  - override /data: poc2mol_hiqbind_data
   - override /model: poc2mol
   - override /logger: wandb.yaml
 
@@ -26,8 +26,8 @@ logger:
     id: null # pass correct id to resume experiment!
 
 model:
-  override_optimizer_on_load: false
-  visualise_val: false
+  override_optimizer_on_load: True
+
   config:
     in_channels: 4
     out_channels: 9
@@ -35,20 +35,5 @@ model:
 trainer:
   val_check_interval: null
   check_val_every_n_epoch: 2
-
-data:
-  num_workers: 0
-  train_dataset:
-    _target_: src.data.poc2mol.datasets.ParquetDataset
-    data_path: "example_data/plinder_example"
-    config: ${data.config}
-  val_dataset:
-    _target_: src.data.poc2mol.datasets.ParquetDataset
-    data_path: "example_data/plinder_example"
-    config: ${data.config}
-  test_dataset:
-    _target_: src.data.poc2mol.datasets.ParquetDataset
-    data_path: "example_data/plinder_example"
-    config: ${data.config}
 
 ckpt_path: null

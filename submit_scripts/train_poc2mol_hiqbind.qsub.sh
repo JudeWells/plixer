@@ -1,15 +1,15 @@
 #!/bin/bash
 
-# Train ProFam
+# Train Poc2Mol on HiQBind
 
 #$ -l tmem=127G
 # -l h_vmem=64G
 #$ -l gpu=true
-#$ -l gpu_type=(a40|a100|a100_80)
 #$ -R y
-#$ -l h_rt=71:55:30
+#$ -l gpu_type=(a40|a100|a100_80)
+#$ -l h_rt=91:55:30
 #$ -S /bin/bash
-#$ -N vox2smiNoCkpt2
+#$ -N poc2molHiq
 #$ -t 1
 #$ -o /SAN/orengolab/nsp13/VoxelDiffOuter/VoxelDiff2/qsub_logs/
 #$ -wd /SAN/orengolab/nsp13/VoxelDiffOuter/VoxelDiff2/
@@ -25,11 +25,9 @@ ROOT_DIR='/SAN/orengolab/nsp13/VoxelDiffOuter/VoxelDiff2/'
 export HYDRA_FULL_ERROR=1
 export PYTHONPATH=$ROOT_DIR:$PYTHONPATH
 cd $ROOT_DIR
-python src/train.py \
-experiment=train_vox2smiles_combined \
+python ${ROOT_DIR}/src/train.py \
+experiment=train_poc2mol_hiqbind \
+ckpt_path=null \
 data.num_workers=0 \
-data.config.batch_size=2 \
-trainer.val_check_interval=5000 \
-task_name="vox2smilesZincAndPoc2MolOutputsNoCkpt" \
-ckpt_path="/SAN/orengolab/nsp13/VoxelDiffOuter/VoxelDiff2/logs/vox2smilesZincAndPoc2MolOutputsNoCkpt/runs/2025-03-23_19-59-20/checkpoints/interrupted.ckpt"
+data.config.batch_size=10
 date

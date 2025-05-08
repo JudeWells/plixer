@@ -8,6 +8,7 @@ from lightning import LightningModule
 from src.models.pytorch3dunet import ResidualUNetSE3D
 from src.models.pytorch3dunet_lib.unet3d.buildingblocks import ResNetBlockSE, ResNetBlock
 from transformers.optimization import get_scheduler
+from torch.optim.lr_scheduler import StepLR
 
 from src.evaluation.visual import show_3d_voxel_lig_only, visualise_batch
 
@@ -50,7 +51,8 @@ class Poc2Mol(LightningModule):
         config: ResUnetConfig,
         lr: float = 1e-4,
         weight_decay: float = 0.0,
-        scheduler_name: str = None,
+        scheduler: Optional[Dict[str, Any]] = None,
+        scheduler_name: str = None,  # legacy support
         num_training_steps: Optional[int] = 100000,
         num_warmup_steps: int = 0,
         num_decay_steps: int = 0,
@@ -82,7 +84,8 @@ class Poc2Mol(LightningModule):
         self.loss = get_loss_criterion(loss, with_logits=with_logits)
         self.lr = lr
         self.weight_decay = weight_decay
-        self.scheduler_name = scheduler_name
+        self.scheduler_config = scheduler or {}
+        self.scheduler_name = scheduler_name  # legacy
         self.scheduler_kwargs = scheduler_kwargs
         self.num_decay_steps = num_decay_steps
         self.num_training_steps = num_training_steps
@@ -94,7 +97,13 @@ class Poc2Mol(LightningModule):
 
 
     def forward(self, prot_vox, labels=None):
-        return self.model(x=prot_vox, labels=labels)
+        pred_vox = self.model(x=prot_vox)
+        if labels is not None:
+            outputs = self.loss(pred_vox, labels)
+            outputs['pred_vox'] = pred_vox
+        else:
+            outputs = pred_vox
+        return outputs
 
     def training_step(self, batch, batch_idx):
         if "load_time" in batch:
@@ -147,6 +156,7 @@ class Poc2Mol(LightningModule):
         pass
 
     def configure_optimizers(self) -> Dict[str, Any]:
+
         optimizer = torch.optim.AdamW(
             self.parameters(),
             lr=self.lr,
@@ -154,18 +164,67 @@ class Poc2Mol(LightningModule):
             betas=(0.9, 0.95),
             eps=1e-5,
         )
-        if self.scheduler_name is not None:
+
+        # Resolve scheduler configuration
+        scheduler_config = self.scheduler_config.copy()
+
+        # Fallback to legacy single-name arguments if new config not provided
+        if not scheduler_config and self.scheduler_name is not None:
+            scheduler_config = {
+                "type": self.scheduler_name,
+                "num_warmup_steps": self.num_warmup_steps,
+            }
+
+        if not scheduler_config:
+            # No scheduler requested – return optimizer only
+            return {"optimizer": optimizer}
+
+        scheduler_type = scheduler_config.get("type", "step")
+
+        if scheduler_type == "step":
+            step_size = scheduler_config.get("step_size", 100)
+            gamma = scheduler_config.get("gamma", 0.997)
+            scheduler = StepLR(optimizer, step_size=step_size, gamma=gamma)
+            return {
+                "optimizer": optimizer,
+                "lr_scheduler": {
+                    "scheduler": scheduler,
+                    "interval": scheduler_config.get("interval", "step"),
+                    "frequency": scheduler_config.get("frequency", 1),
+                },
+            }
+        else:
+            # Use HuggingFace get_scheduler for advanced schedulers
+            num_training_steps = self.trainer.estimated_stepping_batches
+            num_warmup_steps = scheduler_config.get("num_warmup_steps", 0)
+
+            if isinstance(num_warmup_steps, float) and 0 <= num_warmup_steps < 1:
+                num_warmup_steps = int(num_training_steps * num_warmup_steps)
+
+            scheduler_specific_kwargs = {}
+
+            if scheduler_type == "cosine_with_restarts":
+                scheduler_specific_kwargs["num_cycles"] = scheduler_config.get("num_cycles", 1)
+            elif scheduler_type == "cosine_with_min_lr":
+                scheduler_specific_kwargs["min_lr_rate"] = scheduler_config.get("min_lr_rate", 0.1)
+
             scheduler = get_scheduler(
-                self.scheduler_name,
-                optimizer,
-                num_warmup_steps=self.num_warmup_steps,
-                num_training_steps=self.num_training_steps,
-                scheduler_specific_kwargs=self.scheduler_kwargs,
+                name=scheduler_type,
+                optimizer=optimizer,
+                num_warmup_steps=num_warmup_steps,
+                num_training_steps=num_training_steps,
+                scheduler_specific_kwargs=scheduler_specific_kwargs,
             )
 
-        return [optimizer], [scheduler]
-    
-    
+            return {
+                "optimizer": optimizer,
+                "lr_scheduler": {
+                    "scheduler": scheduler,
+                    "interval": scheduler_config.get("interval", "step"),
+                    "frequency": scheduler_config.get("frequency", 1),
+                },
+            }
+
     def on_load_checkpoint(self, checkpoint):
         """Handle checkpoint loading, optionally overriding optimizer and scheduler states.
 

@@ -1,18 +1,18 @@
 _target_: src.data.poc2mol.data_module.ComplexDataModule
-pdb_dir: ../PDBbind_v2020_refined-set
-val_pdb_dir: ../validation_PDBbind
+pdb_dir: null
+val_pdb_dir: null
 num_workers: 0
 train_dataset:
   _target_: src.data.poc2mol.datasets.ParquetDataset
-  data_path: "../plinder/train_arrays_filtered"
+  data_path: "../hiqbind/parquet/train"
   config: ${data.config}
 val_dataset:
   _target_: src.data.poc2mol.datasets.ParquetDataset
-  data_path: "../plinder/val_arrays"
+  data_path: "../hiqbind/parquet/val"
   config: ${data.config}
 test_dataset:
   _target_: src.data.poc2mol.datasets.ParquetDataset
-  data_path: "../plinder/test_arrays"
+  data_path: "../hiqbind/parquet/test"
   config: ${data.config}
 config:
   _target_: src.data.common.voxelization.config.Poc2MolDataConfig 

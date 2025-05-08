@@ -1,15 +1,19 @@
 #!/bin/bash
 
-# Train ProFam
+# Train vox2smiles combined model using a checkpoint from here on kasp:
+# logs/vox2smilesZincAndPoc2MolOutputs/runs/2025-03-22_21-18-58
+# original training run can be seen here: 
+# https://wandb.ai/cath/voxelSmiles/runs/crz11hbc
+# this run was getting 95% SMILES recovery
 
 #$ -l tmem=127G
 # -l h_vmem=64G
 #$ -l gpu=true
 #$ -l gpu_type=(a40|a100|a100_80)
 #$ -R y
-#$ -l h_rt=71:55:30
+#$ -l h_rt=91:55:30
 #$ -S /bin/bash
-#$ -N vox2smiNoCkpt2
+#$ -N CombiResume7e5
 #$ -t 1
 #$ -o /SAN/orengolab/nsp13/VoxelDiffOuter/VoxelDiff2/qsub_logs/
 #$ -wd /SAN/orengolab/nsp13/VoxelDiffOuter/VoxelDiff2/
@@ -26,10 +30,12 @@ export HYDRA_FULL_ERROR=1
 export PYTHONPATH=$ROOT_DIR:$PYTHONPATH
 cd $ROOT_DIR
 python src/train.py \
-experiment=train_vox2smiles_combined \
+experiment=train_vox2smiles_combined_hiqbind \
 data.num_workers=0 \
 data.config.batch_size=2 \
-trainer.val_check_interval=5000 \
-task_name="vox2smilesZincAndPoc2MolOutputsNoCkpt" \
-ckpt_path="/SAN/orengolab/nsp13/VoxelDiffOuter/VoxelDiff2/logs/vox2smilesZincAndPoc2MolOutputsNoCkpt/runs/2025-03-23_19-59-20/checkpoints/interrupted.ckpt"
+task_name="CombinedHiQBindCkptFrmPrevCombined" \
+trainer.accumulate_grad_batches=2 \
+model.config.lr=7e-5 \
+ckpt_path="logs/vox2smilesZincAndPoc2MolOutputs/runs/2025-03-22_21-18-58_from_kaspian/checkpoints/last.ckpt" \
+model.override_optimizer_on_load=True
 date

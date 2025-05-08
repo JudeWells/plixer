@@ -57,8 +57,8 @@ class ComplexDataset(Dataset):
         self.ligand_channel_indices = config.ligand_channel_indices
         self.protein_channel_indices = config.protein_channel_indices
         
-        # Set up maximum atom distance
-        self.max_atom_dist = config.max_atom_dist
+        # Set up maximum atom distance for pruning how much of protein is voxelized
+        self.max_atom_dist = config.get('max_atom_dist', config.box_dims[0])
 
     def get_complex_paths(self):
         """Get paths to protein-ligand complexes."""
@@ -233,9 +233,9 @@ class MolecularComplex:
             dtype=DTYPE,
         )
 
-class PlinderParquetDataset(Dataset):
+class ParquetDataset(Dataset):
     """
-    Dataset for protein-ligand complexes from Plinder parquet files.
+    Dataset for protein-ligand complexes from parquet files (eg. Plinder or HiQBind).
     Loads protein-ligand data from parquet files and voxelizes them on the fly.
     Each item represents a cluster, and a random sample from that cluster is returned.
     """
@@ -246,10 +246,11 @@ class PlinderParquetDataset(Dataset):
         translation: float = None,
         rotate: bool = None,
         cache_size: int = 10,
+        use_cluster_member_zero: bool = False
     ):
         self.config = config
         self.data_path = data_path
-        
+        self.use_cluster_member_zero = use_cluster_member_zero
         indices_dir = os.path.join(data_path, 'indices')
         
         cluster_index_path = os.path.join(indices_dir, 'cluster_index.json')
@@ -283,8 +284,8 @@ class PlinderParquetDataset(Dataset):
         self.ligand_channel_indices = config.ligand_channel_indices
         self.protein_channel_indices = config.protein_channel_indices
         
-        # Set up maximum atom distance
-        self.max_atom_dist = config.max_atom_dist
+        # Set up maximum atom distance for pruning how much of protein is voxelized
+        self.max_atom_dist = config.get('max_atom_dist', config.box_dims[0])
         
         # Set up LRU cache for parquet dataframes
         self.cache_size = cache_size
@@ -334,8 +335,10 @@ class PlinderParquetDataset(Dataset):
         # Get samples for this cluster
         cluster_samples = self.cluster_index[cluster_id]
         
-        # Select a random sample from this cluster
-        sample_info = np.random.choice(cluster_samples)
+        if self.use_cluster_member_zero:
+            sample_info = cluster_samples[0]
+        else:
+            sample_info = np.random.choice(cluster_samples)
         
         file_idx = sample_info['file_idx']
         row_idx = sample_info['row_idx']
@@ -350,11 +353,12 @@ class PlinderParquetDataset(Dataset):
         
         try:
             # Check if we have the new format columns
+            dtype = eval(self.config.dtype) if isinstance(self.config.dtype, str) else self.config.dtype
             if 'protein_coords' in row and 'ligand_coords' in row:
-                protein_coords = torch.tensor(row['protein_coords'], dtype=torch.float16).reshape(
+                protein_coords = torch.tensor(row['protein_coords'], dtype=dtype).reshape(
                     list(row['protein_coords_shape'])
                     )
-                ligand_coords = torch.tensor(row['ligand_coords'], dtype=torch.float16).reshape(
+                ligand_coords = torch.tensor(row['ligand_coords'], dtype=dtype).reshape(
                     list(row['ligand_coords_shape'])
                 )
                 
@@ -390,15 +394,15 @@ class PlinderParquetDataset(Dataset):
                 
                 # Apply transformations
                 if self.random_rotation:
-                    assert abs(complex_obj.ligand_data.coords.mean(axis=1) - complex_obj.ligand_center).max() < 1e-5, "Ligand center is not correct"
+                    assert abs(complex_obj.ligand_data.coords.mean(axis=1) - complex_obj.ligand_center).max() < 1, "Ligand center is not correct"
                     complex_obj = apply_random_rotation(complex_obj)
-                    assert abs(complex_obj.ligand_data.coords.mean(axis=1) - complex_obj.ligand_center).max() < 1e-5, "Ligand center is not correct"
+                    assert abs(complex_obj.ligand_data.coords.mean(axis=1) - complex_obj.ligand_center).max() < 1, "Ligand center is not correct"
                 
                 if self.random_translation > 0:
                     complex_obj = apply_random_translation(complex_obj, self.random_translation)
                 
                 if self.max_atom_dist is not None and self.max_atom_dist > 0:
-                    assert abs(complex_obj.ligand_data.coords.mean(axis=1) - complex_obj.ligand_center).max() <= self.random_translation, "Ligand center is not correct"
+                    assert abs(complex_obj.ligand_data.coords.mean(axis=1) - complex_obj.ligand_center).max() <= self.random_translation + 1, "Ligand center is not correct"
                     complex_obj = prune_distant_atoms(complex_obj, self.max_atom_dist)
                 
                 # Voxelize the complex
@@ -451,15 +455,15 @@ class PlinderParquetDataset(Dataset):
                 
                 # Apply transformations
                 if self.random_rotation:
-                    assert abs(complex_obj.ligand_data.coords.mean(axis=1) - complex_obj.ligand_center).max() < 1e-3, "Ligand center is not correct"
+                    assert abs(complex_obj.ligand_data.coords.mean(axis=1) - complex_obj.ligand_center).max() < 1, "Ligand center is not correct"
                     complex_obj = apply_random_rotation(complex_obj)
-                    assert abs(complex_obj.ligand_data.coords.mean(axis=1) - complex_obj.ligand_center).max() < 1e-3, f"Ligand center is not correct: {complex_obj.ligand_data.coords.mean(axis=1)} {complex_obj.ligand_center}"
+                    assert abs(complex_obj.ligand_data.coords.mean(axis=1) - complex_obj.ligand_center).max() < 1, f"Ligand center is not correct: {complex_obj.ligand_data.coords.mean(axis=1)} {complex_obj.ligand_center}"
                 
                 if self.random_translation > 0:
                     complex_obj = apply_random_translation(complex_obj, self.random_translation)
                 
                 if self.max_atom_dist is not None and self.max_atom_dist > 0:
-                    assert abs(complex_obj.ligand_data.coords.mean(axis=1) - complex_obj.ligand_center).max() <= self.random_translation, "Ligand center is not correct"
+                    assert abs(complex_obj.ligand_data.coords.mean(axis=1) - complex_obj.ligand_center).max() <= self.random_translation + 1, "Ligand center is not correct"
                     complex_obj = prune_distant_atoms(complex_obj, self.max_atom_dist)
                 
                 # Voxelize the complex

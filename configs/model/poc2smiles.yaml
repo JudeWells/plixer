@@ -32,8 +32,12 @@ poc2mol:
       beta: 1 # DICE weight
   matmul_precision: 'high'
   lr: 1e-3
-  scheduler_name: constant_with_warmup
-  num_warmup_steps: 180
+  scheduler:
+    type: "cosine_with_min_lr"
+    num_warmup_steps: 0
+    min_lr_rate: 0.1
+    interval: "step"
+    frequency: 1
   img_save_dir: ${paths.img_save_dir}
 
 # Vox2Smiles model configuration

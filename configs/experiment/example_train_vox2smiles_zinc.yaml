@@ -1,9 +1,9 @@
 # @package _global_
 defaults:
-  - _self_
   - override /data: vox2smiles_zinc_data
   - override /model: vox2smiles
   - override /logger: wandb.yaml
+  - _self_
 
 task_name: "vox2smilesZinc"
 tags: ["dev", "vox2smiles", "zinc"]
@@ -26,9 +26,10 @@ logger:
 
 data:
   _target_: src.data.vox2smiles.data_module.Vox2SmilesDataModule
+  num_workers: 0
   config:
     include_hydrogens: false
-    num_workers: 0 #consider moving outside of config
+
   train_dataset:
     _target_: src.data.vox2smiles.datasets.ParquetVox2SmilesDataset
     data_path: example_data/zinc_example

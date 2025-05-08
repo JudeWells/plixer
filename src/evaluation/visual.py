@@ -4,7 +4,77 @@ import numpy as np
 import matplotlib.pyplot as plt
 import matplotlib.colors as mcolors
 import wandb
+from rdkit import Chem
+from rdkit.Chem import Draw
+import os
 
+ALL_ANGLES = [
+            (0, 0),
+            (0, 45),
+            (0, 90),
+            (0, 135),
+            (0, 180),
+            (0, -45),
+            (0, -90),
+            (0, -135), 
+            (45, 0),
+            (45, 45),
+            (45, 90),
+            (45, 135),
+            (45, 180),
+            (45, -45),
+            (45, -90),
+            (45, -135),
+            # (90, 0),
+            (90, 45),
+            # (90, 90),
+            # (90, 135),
+            # (90, 180),
+            # (90, -45),
+            # (90, -90),
+            # (90, -135),
+            (135, 0),
+            (135, 45),
+            (135, 90),
+            (135, 135),
+            (135, 180),
+            (135, -45),
+            (135, -90),
+            (135, -135),
+            (180, 0),
+            (180, 45),
+            (180, 90),
+            (180, 135),
+            (180, 180),
+            (180, -45),
+            (180, -90),
+            (180, -135),
+            (-135, 0),
+            (-135, 45),
+            (-135, 90),
+            (-135, 135),
+            (-135, 180),
+            (-135, -45),
+            (-135, -90),
+            (-135, -135),    
+            (-45, 0),
+            (-45, 45),
+            (-45, 90),
+            (-45, 135),
+            (-45, 180),
+            (-45, -45),
+            (-45, -90),
+            (-45, -135),
+            (-90, 45)
+            # (-90, 0),# these just rotate in perpendicular to plane of view
+            # (-90, 90),
+            # (-90, 135),
+            # (-90, 180),
+            # (-90, -45),
+            # (-90, -90),
+            # (-90, -135),
+ 
+        ]
 
 def show_3d_voxel_lig_only(vox, angles=None, save_dir=None, identifier='lig'):
     if not isinstance(vox, np.ndarray):
@@ -17,11 +87,11 @@ def show_3d_voxel_lig_only(vox, angles=None, save_dir=None, identifier='lig'):
     colors[1] = mcolors.to_rgba('red')  # oxygen_ligand
     colors[2] = mcolors.to_rgba('blue')  # nitrogen_ligand
     colors[3] = mcolors.to_rgba('yellow')  # sulfur_ligand
-    colors[4] = mcolors.to_rgba('magenta')  # chlorine_ligand
-    colors[5] = mcolors.to_rgba('magenta')  # fluorine_ligand
+    colors[4] = mcolors.to_rgba('cyan')  # chlorine_ligand
+    colors[5] = mcolors.to_rgba('darkcyan')  # fluorine_ligand
     colors[6] = mcolors.to_rgba('magenta')  # iodine_ligand
-    colors[7] = mcolors.to_rgba('magenta')  # bromine_ligand
-    colors[8] = mcolors.to_rgba('cyan')  # other_ligand
+    colors[7] = mcolors.to_rgba('brown')  # bromine_ligand
+    colors[8] = mcolors.to_rgba('purple')  # other_ligand
 
     # Set transparency for all colors
     colors[:, 3] = 0.2
@@ -156,7 +226,7 @@ def visualise_batch(lig, pred, names, angles=None, save_dir=None, batch='none', 
 if __name__=="__main__":
     import yaml
     from torch.utils.data import DataLoader
-    from src.data.poc2mol.datasets import PlinderParquetDataset
+    from src.data.poc2mol.datasets import ParquetDataset
     from src.data.common.voxelization.config import Poc2MolDataConfig
 
     with open('configs/data/data.yaml', 'r') as file:
@@ -199,3 +269,148 @@ if __name__=="__main__":
         )
 
         break
+
+
+def visualize_2d_molecule_batch(batch_data, output_path, n_cols=3):
+    """
+    Visualizes a batch of molecules with their SMILES strings.
+    
+    Args:
+        batch_data (list): List of dictionaries containing molecule data
+        output_path (str): Path to save the output image
+        n_cols (int): Number of columns in the grid (default=3)
+    """
+    n_mols = len(batch_data)
+    n_rows = (n_mols + n_cols - 1) // n_cols  # Ceiling division
+    
+    # Create a figure with enough height to accommodate SMILES strings
+    fig, axes = plt.subplots(n_rows * 2, n_cols, figsize=(6*n_cols, 5*n_rows))
+    fig.suptitle('True vs Sampled Molecules', fontsize=16, y=0.95)
+    
+    # Flatten axes for easier indexing if there's only one row
+    if n_rows == 1:
+        axes = axes.reshape(2, -1)
+    
+    for idx, data in enumerate(batch_data):
+        row = (idx // n_cols) * 2
+        col = idx % n_cols
+        
+        # Draw true molecule
+        true_img = Draw.MolToImage(data['true_mol'], size=(400, 400))
+        axes[row, col].imshow(true_img)
+        axes[row, col].axis('off')
+        axes[row, col].set_title(f"True - {data['name']}", fontsize=12)
+        
+        # Add true SMILES string
+        true_smiles = data['true_smiles']
+        # add newline every 50 chars
+        true_smiles = '\n'.join([true_smiles[i:i+50] for i in range(0, len(true_smiles), 50)])
+        axes[row, col].text(0.5, -0.1, true_smiles, 
+                          horizontalalignment='center',
+                          verticalalignment='top',
+                          transform=axes[row, col].transAxes,
+                          fontsize=10,
+                          wrap=True)
+        
+        # Draw sampled molecule
+        sampled_img = Draw.MolToImage(data['sampled_mol'], size=(400, 400))
+        axes[row + 1, col].imshow(sampled_img)
+        axes[row + 1, col].axis('off')
+        axes[row + 1, col].set_title(f"Sampled - {data['name']}", fontsize=12)
+        
+        # Add sampled SMILES string
+        sampled_smiles = data['sampled_smiles']
+        # add newline every 50 chars
+        sampled_smiles = '\n'.join([sampled_smiles[i:i+50] for i in range(0, len(sampled_smiles), 50)])
+        axes[row + 1, col].text(0.5, -0.1, sampled_smiles,
+                               horizontalalignment='center',
+                               verticalalignment='top',
+                               transform=axes[row + 1, col].transAxes,
+                               fontsize=10,
+                               wrap=True)
+    
+    # Hide empty subplots
+    for idx in range(n_mols, n_cols * n_rows):
+        row = (idx // n_cols) * 2
+        col = idx % n_cols
+        axes[row, col].axis('off')
+        axes[row + 1, col].axis('off')
+    
+    # Adjust layout to prevent overlap
+    plt.tight_layout()
+    
+    # Create output directory if it doesn't exist
+    os.makedirs(os.path.dirname(output_path), exist_ok=True)
+    
+    # Save high-resolution figure
+    plt.savefig(output_path, dpi=300, bbox_inches='tight')
+    plt.close()
+
+
+def show_3d_voxel_lig_in_protein(lig_vox, protein_vox, angles=None, save_dir=None, identifier='lig_in_protein'):
+    """
+    Visualizes ligand voxels inside protein pocket.
+    
+    Args:
+        lig_vox (np.ndarray): Ligand voxel grid of shape (n_channels, x, y, z)
+        protein_vox (np.ndarray): Protein voxel grid of shape (n_channels, x, y, z)
+        angles (list): List of (elevation, azimuth) angles to view from
+        save_dir (str): Directory to save images
+        identifier (str): Identifier for saved images
+    """
+    if not isinstance(lig_vox, np.ndarray):
+        lig_vox = lig_vox.detach().cpu().numpy()
+    if not isinstance(protein_vox, np.ndarray):
+        protein_vox = protein_vox.detach().cpu().numpy()
+        
+    lig_vox = (lig_vox > 0.5).astype(int)
+    protein_vox = (protein_vox > 0.5).astype(int)
+    
+    # Colors for ligand channels
+    lig_colors = np.zeros((lig_vox.shape[0], 4))
+    lig_colors[0] = mcolors.to_rgba('green')  # carbon_ligand
+    lig_colors[1] = mcolors.to_rgba('red')  # oxygen_ligand
+    lig_colors[2] = mcolors.to_rgba('blue')  # nitrogen_ligand
+    lig_colors[3] = mcolors.to_rgba('yellow')  # sulfur_ligand
+    lig_colors[4] = mcolors.to_rgba('cyan')  # chlorine_ligand
+    lig_colors[5] = mcolors.to_rgba('darkcyan')  # fluorine_ligand
+    lig_colors[6] = mcolors.to_rgba('magenta')  # iodine_ligand
+    lig_colors[7] = mcolors.to_rgba('brown')  # bromine_ligand
+    lig_colors[8] = mcolors.to_rgba('purple')  # other_ligand
+    
+    # Set transparency for ligand colors
+    lig_colors[:, 3] = 0.3
+    
+    # Color for protein (semi-transparent gray)
+    protein_color = np.array([0.7, 0.7, 0.7, 0.05])  # Gray with low opacity
+    protein_color[:4] = mcolors.to_rgba('pink')
+    protein_color[3] = 0.05
+    if angles is None:
+        # cover all angles in 45 degree increments
+        angles = ALL_ANGLES
+        
+    fig = plt.figure(figsize=(8, 8))
+    ax = fig.add_subplot(111, projection='3d')
+    
+    # Plot protein voxels first (as background)
+    for channel in range(protein_vox.shape[0]):
+        ax.voxels(protein_vox[channel], facecolors=protein_color, edgecolors=protein_color)
+    
+    # Plot ligand voxels on top
+    for channel in range(lig_vox.shape[0]):
+        ax.voxels(lig_vox[channel], facecolors=lig_colors[channel], edgecolors=lig_colors[channel])
+    
+    # Save images from different angles
+    for i, angle in enumerate(angles):
+        ax.view_init(elev=angle[0], azim=angle[1])
+        ax.axis('off')
+        ax.grid(False)
+        ax.set_xticks([])
+        ax.set_yticks([])
+        ax.set_zticks([])
+        
+        if save_dir is not None:
+            os.makedirs(save_dir, exist_ok=True)
+            plt.savefig(f"{save_dir}/{identifier}_angle_{i + 1}.png", dpi=300, bbox_inches='tight')
+            
+    plt.close(fig)

@@ -1,12 +1,13 @@
 defaults:
   - _self_
-  - data: poc2mol_data.yaml
-  - model: poc2mol.yaml
+  - data: poc2mol_plinder_data
+  - model: poc2mol
   - callbacks: default.yaml
   - logger: wandb.yaml
   - trainer: default.yaml
   - paths: default.yaml
   - hydra: default.yaml
+  - experiment: null
 
 task_name: "poc2mol"
 tags: ["dev"]

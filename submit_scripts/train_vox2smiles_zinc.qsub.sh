@@ -7,9 +7,9 @@
 #$ -l gpu=true
 #$ -l gpu_type=(a40|a100|a100_80)
 #$ -R y
-#$ -l h_rt=71:55:30
+#$ -l h_rt=91:55:30
 #$ -S /bin/bash
-#$ -N vox2smiNoCkpt2
+#$ -N vox2smiZinc
 #$ -t 1
 #$ -o /SAN/orengolab/nsp13/VoxelDiffOuter/VoxelDiff2/qsub_logs/
 #$ -wd /SAN/orengolab/nsp13/VoxelDiffOuter/VoxelDiff2/
@@ -26,10 +26,10 @@ export HYDRA_FULL_ERROR=1
 export PYTHONPATH=$ROOT_DIR:$PYTHONPATH
 cd $ROOT_DIR
 python src/train.py \
-experiment=train_vox2smiles_combined \
-data.num_workers=0 \
-data.config.batch_size=2 \
+experiment=train_vox2smiles_zinc \
+data.config.batch_size=24 \
+model.config.lr=5e-5 \
 trainer.val_check_interval=5000 \
-task_name="vox2smilesZincAndPoc2MolOutputsNoCkpt" \
-ckpt_path="/SAN/orengolab/nsp13/VoxelDiffOuter/VoxelDiff2/logs/vox2smilesZincAndPoc2MolOutputsNoCkpt/runs/2025-03-23_19-59-20/checkpoints/interrupted.ckpt"
+task_name="vox2smilesZincOnly" \
+ckpt_path=null
 date

@@ -14,7 +14,7 @@ import traceback
 from collections import defaultdict
 
 # Import necessary modules from your codebase
-from src.data.poc2mol.datasets import PlinderParquetDataset
+from src.data.poc2mol.datasets import ParquetDataset
 from src.data.common.voxelization.config import Poc2MolDataConfig
 
 # Set up configuration
@@ -43,7 +43,7 @@ def validate_sample(row, dataset_instance):
     
     Args:
         row: DataFrame row containing sample data
-        dataset_instance: Instance of PlinderParquetDataset
+        dataset_instance: Instance of ParquetDataset
     
     Returns:
         tuple: (is_valid, error_message)
@@ -103,7 +103,7 @@ def process_parquet_file(file_path, output_dir, dataset_instance):
     Args:
         file_path: Path to the parquet file
         output_dir: Directory to save processed files
-        dataset_instance: Instance of PlinderParquetDataset for validation
+        dataset_instance: Instance of ParquetDataset for validation
     
     Returns:
         dict: Statistics about the processing
@@ -279,7 +279,7 @@ def main():
         dummy_df.to_parquet(dummy_path)
         
         # Create dataset instance
-        dataset_instance = PlinderParquetDataset(
+        dataset_instance = ParquetDataset(
             config=config,
             data_path=temp_dir,
             translation=0.0,
