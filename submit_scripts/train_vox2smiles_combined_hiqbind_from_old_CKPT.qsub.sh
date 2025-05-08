@@ -13,7 +13,7 @@
 #$ -R y
 #$ -l h_rt=91:55:30
 #$ -S /bin/bash
-#$ -N CombiResume7e5
+#$ -N CombiResume1e4
 #$ -t 1
 #$ -o /SAN/orengolab/nsp13/VoxelDiffOuter/VoxelDiff2/qsub_logs/
 #$ -wd /SAN/orengolab/nsp13/VoxelDiffOuter/VoxelDiff2/
@@ -33,9 +33,9 @@ python src/train.py \
 experiment=train_vox2smiles_combined_hiqbind \
 data.num_workers=0 \
 data.config.batch_size=2 \
-task_name="CombinedHiQBindCkptFrmPrevCombined" \
+task_name="CombinedHiQBindHigherPropPoc2Mol" \
 trainer.accumulate_grad_batches=2 \
-model.config.lr=7e-5 \
-ckpt_path="logs/vox2smilesZincAndPoc2MolOutputs/runs/2025-03-22_21-18-58_from_kaspian/checkpoints/last.ckpt" \
+model.config.lr=1e-4 \
+ckpt_path="logs/CombinedHiQBindCkptFrmPrevCombined/runs/2025-05-06_20-51-46/checkpoints/last.ckpt" \
 model.override_optimizer_on_load=True
 date

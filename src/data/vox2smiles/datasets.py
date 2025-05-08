@@ -336,23 +336,15 @@ class Poc2MolOutputDataset(Dataset):
         smiles_str = complex_data['smiles']
         # Generate a predicted ligand voxel using Poc2Mol
         with torch.no_grad():
-            predicted_ligand_voxel = self.poc2mol_model(
+            outputs = self.poc2mol_model(
                 protein_voxel.unsqueeze(0),
                 labels=ground_truth_ligand_voxel.unsqueeze(0)
             )
-            loss = self.poc2mol_model.loss(
-                predicted_ligand_voxel, ground_truth_ligand_voxel.unsqueeze(0)
-
-            )
+            loss = outputs['bce'] + outputs['dice']
+            predicted_ligand_voxel = outputs['pred_vox']
             
-            if isinstance(loss, dict):
-                running_loss = 0
-                for k,v in loss.items():
-                    running_loss += v
-                loss = running_loss
             predicted_ligand_voxel = torch.sigmoid(predicted_ligand_voxel.squeeze(0))
-            # Move the tensor to CPU to avoid pin_memory issues
-            predicted_ligand_voxel = predicted_ligand_voxel
+
 
         smiles_str = self.tokenizer.bos_token + smiles_str + self.tokenizer.eos_token
         

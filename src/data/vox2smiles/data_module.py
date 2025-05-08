@@ -21,6 +21,7 @@ class Vox2SmilesDataModule(LightningDataModule):
         train_dataset = None,
         val_dataset = None,
         test_dataset = None,
+        secondary_val_dataset = None,
         num_workers = 0
     ):
         super().__init__()
@@ -32,6 +33,7 @@ class Vox2SmilesDataModule(LightningDataModule):
         self.train_dataset_provided = train_dataset
         self.val_dataset_provided = val_dataset
         self.test_dataset_provided = test_dataset
+        self.secondary_val_dataset_provided = secondary_val_dataset
         self.tokenizer = build_smiles_tokenizer()
         self.collate_fn = get_collate_function(self.tokenizer)
         self.num_workers = num_workers
@@ -86,15 +88,27 @@ class Vox2SmilesDataModule(LightningDataModule):
 
     def val_dataloader(self):
         """Get the validation data loader."""
-        return DataLoader(
+        loaders = [ DataLoader(
             self.val_dataset,
             batch_size=self.config.batch_size,
             shuffle=False,
             num_workers=self.num_workers,
             collate_fn=self.collate_fn,
             pin_memory=False,
-            persistent_workers=True if self.num_workers > 0 else False,
-        )
+                persistent_workers=True if self.num_workers > 0 else False,
+            )
+        ]
+        if self.secondary_val_dataset_provided is not None:
+            loaders.append(DataLoader(
+                self.secondary_val_dataset_provided,
+                batch_size=self.config.batch_size,
+                shuffle=False,
+                num_workers=self.num_workers,
+                collate_fn=self.collate_fn,
+                pin_memory=False,
+                persistent_workers=True if self.num_workers > 0 else False,
+            ))
+        return loaders
 
     def test_dataloader(self):
         """Get the test data loader."""

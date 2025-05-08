@@ -389,7 +389,7 @@ def show_3d_voxel_lig_in_protein(lig_vox, protein_vox, angles=None, save_dir=Non
         # cover all angles in 45 degree increments
         angles = ALL_ANGLES
         
-    fig = plt.figure(figsize=(8, 8))
+    fig = plt.figure(figsize=(6, 6))
     ax = fig.add_subplot(111, projection='3d')
     
     # Plot protein voxels first (as background)

@@ -1,5 +1,6 @@
 import torch
 import numpy as np
+import copy
 from lightning import LightningModule
 from torchmetrics import MeanMetric
 from transformers import (VisionEncoderDecoderModel,
@@ -76,6 +77,8 @@ class VoxToSmilesModel(LightningModule):
         self.train_loss = MeanMetric()
         self.val_loss = MeanMetric()
         self.val_acc = MeanMetric()
+        self.val_loss_poc2mol_output = MeanMetric()
+        self.val_acc_poc2mol_output = MeanMetric()
         self.test_loss = MeanMetric()
         self.test_acc = MeanMetric()
 
@@ -83,6 +86,7 @@ class VoxToSmilesModel(LightningModule):
         self.train_sample_counter = 0
         self.train_poc2mol_sample_counter = 0
         self.val_validity = MeanMetric()
+        self.val_validity_poc2mol_output = MeanMetric()
     def forward(self, pixel_values, labels=None):
         if labels is not None:
             return self.model(pixel_values=pixel_values, labels=labels, return_dict=True)
@@ -97,35 +101,69 @@ class VoxToSmilesModel(LightningModule):
         self.train_loss(loss)
         self.log("train/loss", self.train_loss, on_step=False, on_epoch=True, prog_bar=True)
         self.log("train/batch_loss", loss, on_step=True, on_epoch=False, prog_bar=True)
+        self.train_sample_counter += len(batch['pixel_values'])
+        self.log("train/n_samples", self.train_sample_counter, on_step=True, on_epoch=True, prog_bar=True, batch_size=len(batch['pixel_values']))
         if 'poc2mol_loss' in batch and batch['poc2mol_loss'] is not None:
             elements_with_loss_mask = batch['poc2mol_loss'] > 0
             self.train_poc2mol_sample_counter += elements_with_loss_mask.int().sum()
             self.log("train/proportion_from_poc2mol", self.train_poc2mol_sample_counter / self.train_sample_counter, on_step=True, on_epoch=True, prog_bar=True, batch_size=len(batch['pixel_values']))
-            self.log("train/n_samples", self.train_sample_counter, on_step=True, on_epoch=True, prog_bar=True, batch_size=len(batch['pixel_values']))
+            accuracy = accuracy_from_outputs(outputs, labels, start_ix=1, ignore_index=0)
+            if elements_with_loss_mask.int().sum() == 0:
+                self.log("train/accuracy", accuracy, on_step=True, on_epoch=True, prog_bar=True, batch_size=len(labels))
+            elif elements_with_loss_mask.int().sum() == len(labels):
+                self.log("train/poc2mol_accuracy", accuracy, on_step=True, on_epoch=True, prog_bar=True, batch_size=len(labels))
             self.log("train/n_poc2mol_samples", self.train_poc2mol_sample_counter, on_step=True, on_epoch=True, prog_bar=True, batch_size=len(batch['pixel_values']))
             if elements_with_loss_mask.any():
                 self.log("train/poc2mol_loss", batch['poc2mol_loss'][elements_with_loss_mask].mean(), on_step=True, on_epoch=True, prog_bar=True, batch_size=elements_with_loss_mask.int().sum())
         return loss
 
-    def validation_step(self, batch, batch_idx):
+    def validation_step(self, batch, batch_idx, dataloader_idx=0):
         pixel_values = batch["pixel_values"]
         labels = batch["input_ids"]
         outputs = self(pixel_values, labels=labels)
         loss = outputs.loss
-        self.val_loss(loss)
-        self.log("val/loss", self.val_loss, on_step=False, on_epoch=True, prog_bar=True)
         accuracy = accuracy_from_outputs(outputs, labels, start_ix=1, ignore_index=0)
-        self.val_acc(accuracy)
-        self.log("val/accuracy", self.val_acc, on_step=False, on_epoch=True, prog_bar=True)
-        if batch_idx % 200 == 0:
+        if dataloader_idx == 0:
+            self.val_loss(loss)
+            self.log(f"val/loss", self.val_loss, on_step=False, on_epoch=True, prog_bar=True, add_dataloader_idx=False)
+            self.val_acc(accuracy)
+            self.log(f"val/accuracy", self.val_acc, on_step=False, on_epoch=True, prog_bar=True, add_dataloader_idx=False)
+        else:
+            self.val_loss_poc2mol_output(loss)
+            self.log(f"val/poc2mol_output/loss", self.val_loss_poc2mol_output, on_step=False, on_epoch=True, prog_bar=True, add_dataloader_idx=False)
+            self.val_acc_poc2mol_output(accuracy)
+            self.log(f"val/poc2mol_output/accuracy", self.val_acc_poc2mol_output, on_step=False, on_epoch=True, prog_bar=True, add_dataloader_idx=False)
+        if batch_idx % 100 == 0:
             generated_smiles = self.generate_smiles(pixel_values)
             if len(generated_smiles) > 0:
                 validity = calculate_validity(generated_smiles)
-                self.val_validity(validity)
-                self.log("val/validity", self.val_validity, on_step=False, on_epoch=True)
+                if dataloader_idx == 0:
+                    self.val_validity(validity)
+                    self.log(
+                        f"val/validity",
+                        self.val_validity,
+                        on_step=False,
+                        on_epoch=True,
+                        add_dataloader_idx=False,
+                        batch_size=len(generated_smiles)
+                    )
+                else:
+                    self.val_validity_poc2mol_output(validity)
+                    self.log(
+                        f"val/poc2mol_output/validity",
+                        self.val_validity_poc2mol_output,
+                        on_step=False,
+                        on_epoch=True,
+                        add_dataloader_idx=False,
+                        batch_size=len(generated_smiles)
+                    )
         if batch_idx < 3:
             try:
-                self.visualize_smiles(batch, outputs)
+                if dataloader_idx == 0:
+                    sample_str = ""
+                else:
+                    sample_str = "poc2mol_output "
+                self.visualize_smiles(batch, sample_str=sample_str)
             except Exception as e:
                 print("Error visualizing smiles: ", e)
         return loss
@@ -229,7 +267,7 @@ class VoxToSmilesModel(LightningModule):
         predicted_smiles = self.tokenizer.batch_decode(tokens, skip_special_tokens=True)
         return [sm.replace(' ', '') for sm in predicted_smiles]
 
-    def visualize_smiles(self, batch, outputs):
+    def visualize_smiles(self, batch, sample_str=""):
         actual_smiles = batch["smiles_str"]
         actual_smiles = [sm.replace("[BOS]", '').replace("[EOS]", "") for sm in actual_smiles]
         predicted_smiles = self.generate_smiles(batch["pixel_values"])
@@ -239,11 +277,11 @@ class VoxToSmilesModel(LightningModule):
         for i, (pred, actual) in enumerate(zip(predicted_smiles, actual_smiles)):
             pred_img = self.smiles_to_image(pred, f"Predicted: {pred}")
             if pred_img:
-                images_to_log.append(wandb.Image(pred_img, caption=f"Sample {i} - Predicted"))
+                images_to_log.append(wandb.Image(pred_img, caption=f"Sample {i} {sample_str}Predicted"))
 
             actual_img = self.smiles_to_image(actual, f"Actual: {actual}")
             if actual_img:
-                images_to_log.append(wandb.Image(actual_img, caption=f"Sample {i} - Actual"))
+                images_to_log.append(wandb.Image(actual_img, caption=f"Sample {i} {sample_str}Actual"))
 
         if images_to_log:
             wandb.log({"SMILES Comparison": images_to_log})

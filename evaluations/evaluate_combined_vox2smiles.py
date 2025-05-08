@@ -44,7 +44,7 @@ def parse_args():
     parser.add_argument(
         "--output_dir", 
         type=str, 
-        default="evaluation_results/CombinedHiQBindCkptFrmPrevCombined_2025-05-06_v3_member_zero_v3",
+        default="evaluation_results/CombinedModel_2025-05-06_v5",
         help="Directory to save evaluation results"
     )
     parser.add_argument(
@@ -59,6 +59,10 @@ def parse_args():
         type=str, 
         default="torch.bfloat16",
         help="Evaluation dtype"
+    )
+    parser.add_argument(
+        "--skip_visualisation", 
+        action="store_true",
     )
     return parser.parse_args()
 
@@ -155,7 +159,8 @@ def evaluate_combined_model(
         combined_model: CombinedProteinToSmilesModel, 
         test_dataloader: DataLoader,
         output_dir="evaluation_results",
-        save_voxels: bool = False
+        save_voxels: bool = False,
+        skip_visualisation: bool = False
         ):
     os.makedirs(output_dir, exist_ok=True)
     # Get tokenizer configuration from the model config
@@ -182,7 +187,7 @@ def evaluate_combined_model(
             ligand_voxels=batch['ligand']
             )
         decoy_labels = batch['input_ids'] # use previous batch as decoy labels
-        if save_voxels:
+        if save_voxels and not skip_visualisation:
             assert len(batch['ligand']) == 1
             os.makedirs(f'{output_dir}/voxels', exist_ok=True)
             poc2mol_output_path = f'{output_dir}/voxels/poc2mol_output_{batch["name"][0]}_{str(int(round(result["poc2mol_loss"], 3) * 1000)).zfill(4)}.npy'
@@ -220,7 +225,7 @@ def evaluate_combined_model(
                     'name': batch['name'][0]
                 }
             )
-            if len(visualisation_batch) == 9:
+            if len(visualisation_batch) == 9 and not skip_visualisation:
                 visualize_2d_molecule_batch(
                     visualisation_batch, 
                     f'{output_dir}/batch_{vis_batch_idx}.png'
@@ -272,7 +277,10 @@ def evaluate_combined_model(
                 'true_num_heavy_atoms': true_num_heavy_atoms,
                 'poc2mol_bce': result['poc2mol_bce'],
                 'poc2mol_dice': result['poc2mol_dice'],
-                'poc2mol_loss': result['poc2mol_loss']
+                'poc2mol_loss': result['poc2mol_loss'],
+                'smiles_teacher_forced_accuracy': result['smiles_teacher_forced_accuracy'].item(),
+                'decoy_smiles_true_label_teacher_forced_accuracy': result['decoy_smiles_true_label_teacher_forced_accuracy'].item() if 'decoy_smiles_true_label_teacher_forced_accuracy' in result else None,
+                'decoy_smiles_decoy_label_teacher_forced_accuracy': result['decoy_smiles_decoy_label_teacher_forced_accuracy'].item() if 'decoy_smiles_decoy_label_teacher_forced_accuracy' in result else None
             }
         )
         df = pd.DataFrame(result_rows)
@@ -313,7 +321,8 @@ def main():
         combined_model, 
         test_dataloader,
         output_dir=args.output_dir,
-        save_voxels=True
+        save_voxels=True,
+        skip_visualisation=args.skip_visualisation
         )
     results_df = pd.DataFrame(results)
     for c in results_df.columns:

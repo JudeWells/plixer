@@ -2,6 +2,7 @@
 _target_: src.data.vox2smiles.data_module.Vox2SmilesDataModule
 defaults:
   - /model@train_dataset.poc2mol_output_dataset.poc2mol_model: poc2mol
+  - /model@secondary_val_dataset.poc2mol_model: poc2mol
   - _self_
   # - /data@train_dataset.poc2mol_output_dataset.complex_dataset: poc2mol_data
 data_path: "../geom/rdkit_folder/drugs"
@@ -69,4 +70,51 @@ train_dataset:
         box_dims: [24.0, 24.0, 24.0]
         random_rotation: true
         random_translation: 6.0
-
+secondary_val_dataset:
+  _target_: src.data.vox2smiles.datasets.Poc2MolOutputDataset
+  ckpt_path: logs/poc2mol/runs/2025-04-21_18-13-26/checkpoints/epoch_173.ckpt
+  complex_dataset:
+    _target_: src.data.poc2mol.datasets.ParquetDataset
+    data_path: ../hiqbind/parquet/val
+    translation: 6.0
+    rotate: true
+    config: 
+      _target_: src.data.common.voxelization.config.Poc2MolDataConfig
+      batch_size: 1
+      has_protein: true
+      protein_channel_indices: [0, 1, 2, 3]
+      protein_channels:
+        0: ["C"]
+        1: ["O"]
+        2: ["N"]
+        3: ["S"]
+      protein_channel_names:
+        - carbon
+        - oxygen
+        - nitrogen
+        - sulphur
+      ligand_channel_indices: [4, 5, 6, 7, 8, 9, 10, 11, 12]
+      ligand_channels:
+        0: ["C"]
+        1: ["O"]
+        2: ["N"]
+        3: ["S"]
+        4: ["Cl"]
+        5: ["F"]
+        6: ["I"]
+        7: ["Br"]
+        8: ["C", "H", "O", "N", "S", "Cl", "F", "I", "Br"]
+      ligand_channel_names:
+        - carbon
+        - oxygen
+        - nitrogen
+        - sulphur
+        - chlorine
+        - fluorine
+        - iodine
+        - bromine
+        - other
+      vox_size: 0.75
+      box_dims: [24.0, 24.0, 24.0]
+      random_rotation: true
+      random_translation: 6.0

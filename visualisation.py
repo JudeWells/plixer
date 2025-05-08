@@ -57,6 +57,8 @@ def generate_plots_from_results_df(df, output_dir):
         ("tanimoto_similarity", "decoy_tanimoto_similarity", "Tanimoto similarity"),
         ("mcs_num_atoms", "decoy_mcs_num_atoms", "MCS – number of atoms"),
         ("prop_common_structure", "decoy_prop_common_structure", "Proportion common sub‑structure"),
+        ("smiles_teacher_forced_accuracy", "decoy_smiles_true_label_teacher_forced_accuracy", "SMILES token recovery rate (context is true label)"),
+        ("smiles_teacher_forced_accuracy", "decoy_smiles_decoy_label_teacher_forced_accuracy", "SMILES token recovery rate"),
     ]
 
     for left, right, title in hist_cfg:

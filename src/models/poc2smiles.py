@@ -12,7 +12,7 @@ from rdkit.Chem import AllChem, Draw
 
 from src.models.poc2mol import Poc2Mol
 from src.models.vox2smiles import VoxToSmilesModel
-from src.utils.metrics import calculate_validity, calculate_novelty, calculate_uniqueness
+from src.utils.metrics import calculate_validity, calculate_novelty, calculate_uniqueness, accuracy_from_outputs
 
 
 class CombinedProteinToSmilesModel(L.LightningModule):
@@ -78,15 +78,19 @@ class CombinedProteinToSmilesModel(L.LightningModule):
             "logits": vox2smiles_output["logits"],
             "predicted_ligand_voxels": pred_vox,
             "sampled_smiles": sampled_smiles,
-            "loss": vox2smiles_output['loss']
+            "loss": vox2smiles_output['loss'],
         }
         if labels is not None:
             result['poc2mol_bce'] = poc2mol_output['bce'].mean().item()
             result['poc2mol_dice'] = poc2mol_output['dice'].mean().item()
             result['poc2mol_loss'] = result['poc2mol_bce'] + result['poc2mol_dice']
+            result['smiles_teacher_forced_accuracy'] = accuracy_from_outputs(vox2smiles_output, labels, start_ix=1, ignore_index=0)
         if decoy_labels is not None:
             vox2smiles_output_decoy_loss = self.vox2smiles_model(pred_vox, labels=decoy_labels)['loss']
             result['decoy_loss'] = vox2smiles_output_decoy_loss
+            result['decoy_smiles_true_label_teacher_forced_accuracy'] = accuracy_from_outputs(vox2smiles_output, decoy_labels, start_ix=1, ignore_index=0)
+            vox2smiles_decoy_output = self.vox2smiles_model(pred_vox, labels=decoy_labels)
+            result['decoy_smiles_decoy_label_teacher_forced_accuracy'] = accuracy_from_outputs(vox2smiles_decoy_output, decoy_labels, start_ix=1, ignore_index=0)
 
         return result
     

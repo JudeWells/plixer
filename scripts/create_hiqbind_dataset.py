@@ -312,6 +312,133 @@ def build_ligand_clusters(meta_df: pd.DataFrame, smiles_col: str = "Ligand SMILE
     return mapping
 
 
+def build_mmseqs_database(sequences: dict[str, str], tmp_dir: str, db_prefix: str) -> str:
+    """Build an MMSEQS database from a dictionary of sequences.
+    
+    Args:
+        sequences: Dictionary mapping sequence IDs to sequences
+        tmp_dir: Temporary directory for MMSEQS files
+        db_prefix: Prefix for the output database files
+        
+    Returns:
+        Path to the created database
+    """
+    os.makedirs(tmp_dir, exist_ok=True)
+    
+    # Write sequences to fasta file
+    fasta_path = os.path.join(tmp_dir, f"{db_prefix}.fasta")
+    with open(fasta_path, "w") as f:
+        for seq_id, seq in sequences.items():
+            f.write(f">{seq_id}\n{seq}\n")
+    
+    # Create MMSEQS database
+    db_path = os.path.join(tmp_dir, db_prefix)
+    cmd = [
+        "mmseqs", "createdb",
+        fasta_path,
+        db_path,
+        "--compressed", "1"
+    ]
+    subprocess.run(cmd, check=True)
+    
+    return db_path
+
+
+def batch_search_protein_similarities(query_db: str, target_db: str, tmp_dir: str) -> dict[str, dict[str, float]]:
+    """Perform batch MMSEQS search between query and target databases.
+    
+    Args:
+        query_db: Path to query database
+        target_db: Path to target database
+        tmp_dir: Temporary directory for MMSEQS files
+        
+    Returns:
+        Dictionary mapping query IDs to dictionaries of target IDs and their similarities
+    """
+    # Run MMSEQS search
+    search_prefix = os.path.join(tmp_dir, "search_out")
+    cmd = [
+        "mmseqs", "search",
+        query_db,
+        target_db,
+        search_prefix,
+        tmp_dir,
+        "--min-seq-id", "0.1",
+        "-c", "0.5",
+        "--threads", "20",
+        "--remove-tmp-files", "0",  # Keep temporary files for convertalis
+        "-v", "1",
+    ]
+    subprocess.run(cmd, check=True)
+    
+    # Convert search results to BLAST format
+    result_file = os.path.join(tmp_dir, "results.m8")
+    cmd = [
+        "mmseqs", "convertalis",
+        query_db,
+        target_db,
+        search_prefix,
+        result_file,
+        "--format-output", "query,target,pident,qcov,qlen,alnlen",
+        "--threads", "20"
+    ]
+    subprocess.run(cmd, check=True)
+    
+    # Parse results
+    similarities = []
+    colnames = ["query", "target", "pident", "qcov", "qlen", "alnlen"]
+    if os.path.exists(result_file):
+        with open(result_file) as f:
+            for line in f:
+                parts = line.strip().split("\t")
+                if len(parts) == len(colnames):
+                    new_row = dict(zip(colnames, parts))
+                    similarities.append(new_row)
+    df = pd.DataFrame(similarities)
+    df["pident"] = df["pident"].astype(float)
+    df["qcov"] = df["qcov"].astype(float)
+    df["qlen"] = df["qlen"].astype(int)
+    df["alnlen"] = df["alnlen"].astype(int)
+    return df
+
+
+def calculate_similarity_scores(test_df: pd.DataFrame, train_df: pd.DataFrame) -> pd.DataFrame:
+    """Calculate maximum similarity scores for test set entries relative to training set using batch MMSEQS search."""
+    with tempfile.TemporaryDirectory() as tmpd:
+        # Build sequence dictionaries
+        test_seqs = {row["system_id"]: row["protein_sequence"] for _, row in test_df.iterrows() if row["protein_sequence"]}
+        train_seqs = {row["system_id"]: row["protein_sequence"] for _, row in train_df.iterrows() if row["protein_sequence"]}
+        
+        # Build MMSEQS databases
+        test_db = build_mmseqs_database(test_seqs, tmpd, "test_db")
+        train_db = build_mmseqs_database(train_seqs, tmpd, "train_db")
+        
+        # Perform batch search
+        sim_df = batch_search_protein_similarities(test_db, train_db, tmpd)
+        max_protein_sims = sim_df.groupby("query")["pident"].max().to_dict()
+        
+        # Calculate ligand similarities (keeping existing ligand similarity calculation)
+        max_ligand_sims = {}
+        for _, test_row in tqdm(test_df.iterrows(), desc="Calculating ligand similarities"):
+            test_id = test_row["system_id"]
+            test_smiles = test_row["smiles"]
+            if test_id not in max_protein_sims:
+                max_protein_sims[test_id] = 0.0
+            ligand_sims = []
+            for _, train_row in train_df.iterrows():
+                train_smiles = train_row["smiles"]
+                if train_smiles:
+                    sim = calculate_ligand_similarity(test_smiles, train_smiles)
+                    ligand_sims.append(sim)
+            max_ligand_sims[test_id] = max(ligand_sims) if ligand_sims else 0.0
+        
+        # Add similarity scores to test dataframe
+        test_df["max_protein_similarity"] = test_df["system_id"].map(max_protein_sims)
+        test_df["max_ligand_similarity"] = test_df["system_id"].map(max_ligand_sims)
+        
+        return test_df
+
+
 def calculate_protein_similarity(seq1: str, seq2: str) -> float:
     """Calculate sequence similarity between two protein sequences using MMSEQS."""
     with tempfile.TemporaryDirectory() as tmpd:
@@ -362,46 +489,6 @@ def calculate_ligand_similarity(smiles1: str, smiles2: str) -> float:
     fp1 = AllChem.GetMorganFingerprintAsBitVect(mol1, 2, nBits=1024)
     fp2 = AllChem.GetMorganFingerprintAsBitVect(mol2, 2, nBits=1024)
     return DataStructs.TanimotoSimilarity(fp1, fp2)
-
-
-def calculate_similarity_scores(test_df: pd.DataFrame, train_df: pd.DataFrame) -> pd.DataFrame:
-    """Calculate maximum similarity scores for test set entries relative to training set."""
-    # Extract sequences and SMILES
-    test_seqs = {row["system_id"]: extract_protein_sequence(row["protein_path"]) for _, row in test_df.iterrows()}
-    train_seqs = {row["system_id"]: extract_protein_sequence(row["protein_path"]) for _, row in train_df.iterrows()}
-    
-    test_smiles = {row["system_id"]: row["smiles"] for _, row in test_df.iterrows()}
-    train_smiles = {row["system_id"]: row["smiles"] for _, row in train_df.iterrows()}
-    
-    # Calculate maximum similarities
-    max_protein_sims = {}
-    max_ligand_sims = {}
-    
-    for test_id in tqdm(test_seqs.keys(), desc="Calculating similarity scores"):
-        test_seq = test_seqs[test_id]
-        test_smiles = test_smiles[test_id]
-        
-        # Calculate protein similarities
-        protein_sims = []
-        for train_seq in train_seqs.values():
-            if train_seq:  # Skip empty sequences
-                sim = calculate_protein_similarity(test_seq, train_seq)
-                protein_sims.append(sim)
-        max_protein_sims[test_id] = max(protein_sims) if protein_sims else 0.0
-        
-        # Calculate ligand similarities
-        ligand_sims = []
-        for train_smiles in train_smiles.values():
-            if train_smiles:  # Skip empty SMILES
-                sim = calculate_ligand_similarity(test_smiles, train_smiles)
-                ligand_sims.append(sim)
-        max_ligand_sims[test_id] = max(ligand_sims) if ligand_sims else 0.0
-    
-    # Add similarity scores to test dataframe
-    test_df["max_protein_similarity"] = test_df["system_id"].map(max_protein_sims)
-    test_df["max_ligand_similarity"] = test_df["system_id"].map(max_ligand_sims)
-    
-    return test_df
 
 
 def main():
@@ -521,19 +608,6 @@ def main():
     index_path = os.path.join(args.output_dir, "index.csv")
     index_df.to_csv(index_path, index=False)
     log.info(f"Created index file with {len(saved_files)} parquet files at {index_path}")
-
-    # After creating the dataset, calculate similarity scores if requested
-    if args.calculate_similarities:
-        log.info("Calculating similarity scores for test set...")
-        test_df = pd.concat([pd.read_parquet(f) for f in glob.glob(os.path.join(args.output_dir, "test", "*.parquet"))])
-        train_df = pd.concat([pd.read_parquet(f) for f in glob.glob(os.path.join(args.output_dir, "train", "*.parquet"))])
-        
-        test_df = calculate_similarity_scores(test_df, train_df)
-        
-        # Save similarity scores
-        similarity_path = os.path.join(args.output_dir, "test_similarities.csv")
-        test_df[["system_id", "max_protein_similarity", "max_ligand_similarity"]].to_csv(similarity_path, index=False)
-        log.info(f"Saved similarity scores to {similarity_path}")
     
     log.info("Dataset creation complete")
 
