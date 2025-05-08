@@ -9,7 +9,7 @@
 #$ -l gpu_type=(a40|a100|a100_80)
 #$ -l h_rt=91:55:30
 #$ -S /bin/bash
-#$ -N poc2molHiq
+#$ -N poc2molHiqAc3
 #$ -t 1
 #$ -o /SAN/orengolab/nsp13/VoxelDiffOuter/VoxelDiff2/qsub_logs/
 #$ -wd /SAN/orengolab/nsp13/VoxelDiffOuter/VoxelDiff2/
@@ -29,5 +29,6 @@ python ${ROOT_DIR}/src/train.py \
 experiment=train_poc2mol_hiqbind \
 ckpt_path=null \
 data.num_workers=0 \
-data.config.batch_size=10
+data.config.batch_size=22 \
+trainer.accumulate_grad_batches=3
 date

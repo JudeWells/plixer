@@ -2,12 +2,12 @@
 
 # Train ProFam
 
-#$ -l tmem=7G
-#$ -l h_vmem=7G
-#$ -l h_rt=6:55:30
+#$ -l tmem=3.9G
+#$ -l h_vmem=3.9G
+#$ -l h_rt=7:55:30
 #$ -S /bin/bash
-#$ -N ImgGen
-#$ -t 1-300
+#$ -N ImgGen2
+#$ -t 80-300
 #$ -o /SAN/orengolab/nsp13/VoxelDiffOuter/VoxelDiff2/qsub_logs/
 #$ -wd /SAN/orengolab/nsp13/VoxelDiffOuter/VoxelDiff2/
 #$ -j y
