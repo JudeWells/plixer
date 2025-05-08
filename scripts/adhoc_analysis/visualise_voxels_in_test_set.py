@@ -7,6 +7,8 @@ import glob
 import numpy as np
 import matplotlib.pyplot as plt
 import os
+import tarfile
+import shutil
 from tqdm import tqdm
 
 from src.evaluation.visual import show_3d_voxel_lig_only, show_3d_voxel_lig_in_protein, ALL_ANGLES
@@ -60,6 +62,18 @@ def process_single_case(pred_vox_path, true_vox_path, protein_vox_path, output_d
         save_dir=case_dir,
         identifier='true_ligand_in_protein'
     )
+    
+    # Create tar.gz archive of the case directory
+    tar_path = f"{case_dir}.tar.gz"
+    with tarfile.open(tar_path, "w:gz") as tar:
+        tar.add(case_dir, arcname=os.path.basename(case_dir))
+    
+    # Verify the tar.gz file was created successfully
+    if os.path.exists(tar_path) and os.path.getsize(tar_path) > 0:
+        # Remove the original directory
+        shutil.rmtree(case_dir)
+    else:
+        print(f"Warning: Failed to create tar.gz for {identifier}")
 
 
 if __name__ == "__main__":
