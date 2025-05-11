@@ -2,6 +2,7 @@ import os
 import copy
 import torch
 import numpy as np
+import json
 import yaml
 import argparse
 import hydra
@@ -290,13 +291,63 @@ def evaluate_combined_model(
 
     return result_rows
 
+def summarize_results(results_df, output_dir=None):
+    results = dict(
+    validity = results_df.valid_smiles.mean(),
+    smiles_token_accuracy = results_df.smiles_teacher_forced_accuracy.mean(),
+    smiles_loss = results_df.loss.mean(),
+    decoy_smiles_loss = results_df.decoy_loss.mean(),
+    tanimoto_similarity = results_df.tanimoto_similarity.mean(),
+    decoy_tanimoto_similarity = results_df.decoy_tanimoto_similarity.mean(),
+    n_mols_gt_0p3_tanimoto = len(results_df[results_df.tanimoto_similarity >= 0.3]),
+    tanimoto_enrichment = calculate_enrichment_factor(results_df, target_col="tanimoto_similarity", target_threshold=0.3),
+    likelihood_enrichment = calculate_likelihood_enrichment_factor(results_df, target_col="log_likelihood", top_k=100)
+    )
+
+    results = {k: round(v,4) for k,v in results.items()}
+    for k,v in results.items():
+        print(f"{k}: {v}")
+    if output_dir is not None:
+        result_savepath = f"{output_dir}/results_summary.json"
+        with open(result_savepath, 'w') as filehandle:
+            json.dump(results, filehandle, indent=2)
+    return results
+
+
+def calculate_enrichment_factor(df, target_col="tanimoto_similarity", target_threshold=0.3):
+    model_hitrate = len(df[df[target_col] >= target_threshold]) / len(df)
+    baseline_hitrate = len(df[df["decoy_" + target_col]  >= target_threshold] ) / len(df)
+    enrichment = model_hitrate / baseline_hitrate
+    print(
+        f"Enrichment factor for {target_col} >= {target_threshold} = {round(enrichment, 3)}"
+    )
+    return enrichment
+
+def calculate_likelihood_enrichment_factor(df, target_col="log_likelihood", top_k=100):
+    df_hit_likelihoods = df[[target_col]]
+    df_hit_likelihoods["is_hit"] = 1
+    df_decoy_likelihoods = pd.DataFrame({
+        target_col: df[ "decoy_" + target_col].values,
+        "is_hit": [0] * len(df)
+    })
+    df_combined = pd.concat([df_hit_likelihoods, df_decoy_likelihoods]).sort_values(target_col, ascending=False)
+    hitrate_top_k = df_combined.iloc[:top_k].is_hit.sum() / top_k
+    hitrate_baseline = df_combined.is_hit.sum() / len(df_combined)
+    enrichment = hitrate_top_k/hitrate_baseline
+    print(
+        f"Enrichment factor for {target_col} at top-{top_k}: {round(enrichment, 3)}, hitrate top-k={hitrate_top_k}, hitrate baseline={hitrate_baseline}"
+    )
+    return enrichment
+
+
+
+
 def main():
     args = parse_args()
     similarity_df = pd.read_csv("../hiqbind/similarity_analysis/test_similarities.csv")
     if os.path.exists(f'{args.output_dir}/combined_model_results.csv'):
         results_df = pd.read_csv(f'{args.output_dir}/combined_model_results.csv')
-        calculate_enrichment_factor(results_df)
-        calculate_likelihood_enrichment_factor(results_df)
+        metrics = summarize_results(results_df, output_dir=args.output_dir)
         generate_plots_from_results_df(results_df, args.output_dir, vis_deciles=False, similarity_df=similarity_df)
         return
 
@@ -335,44 +386,8 @@ def main():
             print(c, round(results_df[c].mean(), 3))
         except:
             pass
-    calculate_enrichment_factor(results_df)
-    calculate_likelihood_enrichment_factor(results_df)
+    metrics = summarize_results(results_df, output_dir=args.output_dir)
     generate_plots_from_results_df(results_df, args.output_dir)
-
-def calculate_enrichment_factor(df, target_col="tanimoto_similarity", target_threshold=0.3):
-    model_hitrate = len(df[df[target_col] >= target_threshold]) / len(df)
-    baseline_hitrate = len(df[df["decoy_" + target_col]  >= target_threshold] ) / len(df)
-    print(
-        f"Enrichment factor for {target_col} >= {target_threshold} = {round(model_hitrate / baseline_hitrate, 3)}"
-    )
-
-def calculate_likelihood_enrichment_factor(df, target_col="log_likelihood", top_k=100):
-    df_hit_likelihoods = df[[target_col]]
-    df_hit_likelihoods["is_hit"] = 1
-    df_decoy_likelihoods = pd.DataFrame({
-        target_col: df[ "decoy_" + target_col].values,
-        "is_hit": [0] * len(df)
-    })
-    df_combined = pd.concat([df_hit_likelihoods, df_decoy_likelihoods]).sort_values(target_col, ascending=False)
-    hitrate_top_k = df_combined.iloc[:top_k].is_hit.sum() / top_k
-    hitrate_baseline = df_combined.is_hit.sum() / len(df_combined)
-    print(
-        f"Enrichment factor for {target_col} at top-{top_k}: {round(hitrate_top_k/hitrate_baseline, 3)}, hitrate top-k={hitrate_top_k}, hitrate baseline={hitrate_baseline}"
-    )
-
-    
-
-def generate_plots_for_paper(df, output_dir):
-    # histogram of hit likelihood versus decoy likelihood (with line showing mean)
-    # histogram of sampled mol tanimoto similarity versus decoy tanimoto similarity (with line showing mean)
-    # histogram of maximum common substructure of sampled versus decoy
-    # histogram of proportion common substructure of sampled versus decoy
-    # barplot of means (above) with 95% confidence intervals
-    # for each decile of tanimoto similarity and each decile of proportion common structure generate images of
-    # the sampled smiles and the true smiles 
-    
-
-    pass
 
 if __name__ == "__main__":
     main()
