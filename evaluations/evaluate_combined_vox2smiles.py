@@ -263,6 +263,8 @@ def evaluate_combined_model(
                 'sampled_smiles': sampled_smiles,
                 'loss': result['loss'].item(),
                 'decoy_loss': result['decoy_loss'].item() if 'decoy_loss' in result else None,
+                'log_likelihood': -result['loss'].item(),
+                'decoy_log_likelihood': -result['decoy_loss'].item() if 'decoy_loss' in result else None,
                 'name': batch['name'][0],
                 'smiles': batch['smiles'][0],
                 'valid_smiles': valid_smiles,
@@ -290,9 +292,12 @@ def evaluate_combined_model(
 
 def main():
     args = parse_args()
+    similarity_df = pd.read_csv("../hiqbind/similarity_analysis/test_similarities.csv")
     if os.path.exists(f'{args.output_dir}/combined_model_results.csv'):
-        df = pd.read_csv(f'{args.output_dir}/combined_model_results.csv')
-        generate_plots_from_results_df(df, args.output_dir)
+        results_df = pd.read_csv(f'{args.output_dir}/combined_model_results.csv')
+        calculate_enrichment_factor(results_df)
+        calculate_likelihood_enrichment_factor(results_df)
+        generate_plots_from_results_df(results_df, args.output_dir, vis_deciles=False, similarity_df=similarity_df)
         return
 
     config = get_config_from_cpt_path(args.ckpt_path)
@@ -330,10 +335,32 @@ def main():
             print(c, round(results_df[c].mean(), 3))
         except:
             pass
+    calculate_enrichment_factor(results_df)
+    calculate_likelihood_enrichment_factor(results_df)
     generate_plots_from_results_df(results_df, args.output_dir)
 
+def calculate_enrichment_factor(df, target_col="tanimoto_similarity", target_threshold=0.3):
+    model_hitrate = len(df[df[target_col] >= target_threshold]) / len(df)
+    baseline_hitrate = len(df[df["decoy_" + target_col]  >= target_threshold] ) / len(df)
+    print(
+        f"Enrichment factor for {target_col} >= {target_threshold} = {round(model_hitrate / baseline_hitrate, 3)}"
+    )
 
+def calculate_likelihood_enrichment_factor(df, target_col="log_likelihood", top_k=100):
+    df_hit_likelihoods = df[[target_col]]
+    df_hit_likelihoods["is_hit"] = 1
+    df_decoy_likelihoods = pd.DataFrame({
+        target_col: df[ "decoy_" + target_col].values,
+        "is_hit": [0] * len(df)
+    })
+    df_combined = pd.concat([df_hit_likelihoods, df_decoy_likelihoods]).sort_values(target_col, ascending=False)
+    hitrate_top_k = df_combined.iloc[:top_k].is_hit.sum() / top_k
+    hitrate_baseline = df_combined.is_hit.sum() / len(df_combined)
+    print(
+        f"Enrichment factor for {target_col} at top-{top_k}: {round(hitrate_top_k/hitrate_baseline, 3)}, hitrate top-k={hitrate_top_k}, hitrate baseline={hitrate_baseline}"
+    )
 
+    
 
 def generate_plots_for_paper(df, output_dir):
     # histogram of hit likelihood versus decoy likelihood (with line showing mean)

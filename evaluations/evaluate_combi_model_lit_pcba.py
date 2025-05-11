@@ -26,6 +26,53 @@ in the training set and in the smiles files.
 Save the similarity results to a csv file.
 """
 
+def extract_protein_sequence_from_mol2(mol2_file):
+    """
+    Extract protein sequence from a MOL2 file.
+    MOL2 files contain atom records with residue information that can be used to reconstruct the sequence.
+    """
+    sequence = []
+    current_residue = None
+    residue_to_aa = {
+        'ALA': 'A', 'ARG': 'R', 'ASN': 'N', 'ASP': 'D', 'CYS': 'C',
+        'GLN': 'Q', 'GLU': 'E', 'GLY': 'G', 'HIS': 'H', 'ILE': 'I',
+        'LEU': 'L', 'LYS': 'K', 'MET': 'M', 'PHE': 'F', 'PRO': 'P',
+        'SER': 'S', 'THR': 'T', 'TRP': 'W', 'TYR': 'Y', 'VAL': 'V'
+    }
+    
+    try:
+        with open(mol2_file, 'r') as f:
+            lines = f.readlines()
+            
+        # Find the @<TRIPOS>ATOM section
+        atom_section = False
+        for line in lines:
+            if '@<TRIPOS>ATOM' in line:
+                atom_section = True
+                continue
+            elif '@<TRIPOS>' in line:
+                atom_section = False
+                continue
+                
+            if atom_section:
+                # MOL2 format: atom_id atom_name x y z atom_type res_id res_name charge
+                parts = line.strip().split()
+                if len(parts) >= 7:
+                    res_name = parts[7][:3]
+                    res_id = parts[7][3:]
+                    
+                    # Only process each residue once
+                    if res_id != current_residue:
+                        current_residue = res_id
+                        # Convert three-letter code to one-letter code
+                        if res_name in residue_to_aa:
+                            sequence.append(residue_to_aa[res_name])
+        
+        return ''.join(sequence)
+    except Exception as e:
+        print(f"Error extracting sequence from {mol2_file}: {e}")
+        return None
+
 def calculate_lit_pcba_similarities(train_df, lit_pcba_directory):
     """Calculate similarity scores for LIT-PCBA dataset relative to training set."""
     with tempfile.TemporaryDirectory() as tmpd:
@@ -36,6 +83,7 @@ def calculate_lit_pcba_similarities(train_df, lit_pcba_directory):
         
         target_names = os.listdir(lit_pcba_directory)
         for target_name in target_names:
+            print(f"Processing {target_name}")
             target_directory = os.path.join(lit_pcba_directory, target_name)
             if not os.path.isdir(target_directory):
                 continue
@@ -47,13 +95,15 @@ def calculate_lit_pcba_similarities(train_df, lit_pcba_directory):
             # Process inactive ligands
             inactive_df = pd.concat([pd.read_csv(p, sep=' ', header=None) for p in glob.glob(f"{target_directory}/inactive_*.smi")])
             inactive_df.columns = ["smiles", "id_num"]
+            # subsample the decoys: as we don't care so much about these just want the statistics
+            inactive_df = inactive_df.sample(n=min(5000, len(inactive_df)))
             
             # Process protein files
             protein_files = glob.glob(f"{target_directory}/*protein.mol2")
             for protein_file in protein_files:
                 system_id = os.path.basename(protein_file).replace("_protein.mol2", "")
                 try:
-                    protein_sequence = extract_protein_sequence(protein_file)
+                    protein_sequence = extract_protein_sequence_from_mol2(protein_file)
                     if protein_sequence:
                         lit_pcba_seqs[system_id] = protein_sequence
                 except Exception as e:
@@ -133,6 +183,8 @@ def calculate_lit_pcba_similarities(train_df, lit_pcba_directory):
         results_df["max_protein_similarity"] = results_df["target"].map(max_protein_sims)
         
         return results_df
+
+
 
 def main():
     # Load training data
