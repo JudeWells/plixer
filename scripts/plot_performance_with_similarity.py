@@ -7,6 +7,8 @@ res_path = "evaluation_results/CombinedHiQBindCkptFrmPrevCombined_2025-05-06_v3_
 results_df = pd.read_csv(res_path)
 save_dir = os.path.dirname(res_path)
 results_df['system_id'] = results_df['name']
+if "log_likelihood" not in results_df.columns:
+    results_df["log_likelihood"] = -results_df["loss"]
 # Merge similarity data with results data
 merged_df = pd.merge(results_df, similarity_df, on="system_id", how="left")
 merged_df['max_protein_similarity'] = merged_df['max_protein_similarity'].fillna(0)
@@ -16,6 +18,7 @@ plt.show()
 metrics_for_box_plots = [
     "poc2mol_loss",
     "loss",
+    "log_likelihood",
     "tanimoto_similarity",
     "prop_common_structure"
 ]

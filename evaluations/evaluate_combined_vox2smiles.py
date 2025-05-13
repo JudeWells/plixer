@@ -303,7 +303,7 @@ def summarize_results(results_df, output_dir=None):
     tanimoto_enrichment = calculate_enrichment_factor(results_df, target_col="tanimoto_similarity", target_threshold=0.3),
     likelihood_enrichment = calculate_likelihood_enrichment_factor(results_df, target_col="log_likelihood", top_k=100)
     )
-
+    os.makedirs(output_dir, exist_ok=True)
     results = {k: round(v,4) for k,v in results.items()}
     for k,v in results.items():
         print(f"{k}: {v}")
@@ -347,8 +347,14 @@ def main():
     similarity_df = pd.read_csv("../hiqbind/similarity_analysis/test_similarities.csv")
     if os.path.exists(f'{args.output_dir}/combined_model_results.csv'):
         results_df = pd.read_csv(f'{args.output_dir}/combined_model_results.csv')
+        strict_split_system_ids = similarity_df[(
+            similarity_df.max_ligand_similarity<0.3)|(similarity_df.max_protein_similarity < 0.3)
+            ].system_id.values
+        results_df_strict = results_df[results_df['name'].isin(strict_split_system_ids)]
         metrics = summarize_results(results_df, output_dir=args.output_dir)
+        metrics = summarize_results(results_df_strict, output_dir=os.path.join(args.output_dir, "strict"))
         generate_plots_from_results_df(results_df, args.output_dir, vis_deciles=False, similarity_df=similarity_df)
+        generate_plots_from_results_df(results_df_strict, os.path.join(args.output_dir, "strict"), vis_deciles=False, similarity_df=similarity_df)
         return
 
     config = get_config_from_cpt_path(args.ckpt_path)
