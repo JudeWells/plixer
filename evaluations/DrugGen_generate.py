@@ -20,14 +20,29 @@ from transformers import AutoTokenizer, GPT2LMHeadModel
 from rdkit import Chem, DataStructs
 from rdkit.Chem import AllChem
 from rdkit.Chem import rdFMCS
+from sklearn.metrics import roc_auc_score, precision_recall_curve, auc
+import tqdm
 # Import functions from evaluate_combined_vox2smiles.py
 from evaluations.evaluate_combined_vox2smiles import (
     get_tanimoto_similarity_from_smiles,
     get_max_common_substructure_num_atoms,
     calculate_enrichment_factor,
     calculate_likelihood_enrichment_factor,
-    summarize_results
+    summarize_results,
+    compute_enrichment_factor
 )
+
+def compute_auc_roc(df):
+    y_true = df['is_hit'].values
+    y_scores = df['likelihood'].values
+    return roc_auc_score(y_true, y_scores)
+
+def compute_auc_pr(df):
+    y_true = df['is_hit'].values
+    y_scores = df['likelihood'].values
+    precision, recall, _ = precision_recall_curve(y_true, y_scores)
+    pr_auc = auc(recall, precision)
+    return pr_auc
 
 # Global logging setup
 def setup_logging(output_file):
@@ -94,6 +109,20 @@ class SMILESGenerator:
         self.generation_kwargs["eos_token_id"] = self.tokenizer.eos_token_id
         self.generation_kwargs["pad_token_id"] = self.tokenizer.pad_token_id
 
+    def score_smiles(self, sequence, smiles):
+        with torch.no_grad():
+            prompt = f"<|startoftext|><P>{sequence}<L>{smiles}<|endoftext|>"
+            mask_prompt = f"<|startoftext|><P>{sequence}<L>"
+            encoded_prompt = self.tokenizer(prompt, return_tensors="pt")["input_ids"].to(self.device)
+            encoded_mask_prompt = self.tokenizer(mask_prompt, return_tensors="pt")["input_ids"].to(self.device)
+            labels = encoded_prompt.clone()
+            labels[0,:encoded_mask_prompt.shape[-1]] = -100
+            if encoded_prompt.shape[-1] > 1024:
+                return None
+            loss = self.model.forward(encoded_prompt, labels=labels).loss
+            return loss.item() * -1
+    
+    
     def generate_smiles(self, sequence, num_generated):
         generated_smiles_set = set()
         prompt = f"<|startoftext|><P>{sequence}<L>"
@@ -131,7 +160,79 @@ class SMILESGenerator:
         if num_gen > 0:
             logging.info(f"Average SMILES length: {sum_length / num_gen:.2f}")
         return list(generated_smiles_set)
-
+        
+    
+    
+    def generate_all_decoy_likelihoods(self, df, save_dir, k=1000):
+        all_auc_roc_scores = []
+        all_auc_pr_scores = []
+        rank_scores = []
+        results = []
+        os.makedirs(save_dir, exist_ok=True)
+        for i, row in tqdm.tqdm(df.iterrows(), total=len(df)):
+            output_file = os.path.join(save_dir, f"{row['system_id']}_likelihoods.csv")
+            if os.path.exists(output_file):
+                likelihood_df = pd.read_csv(output_file)
+            else:
+                likelihoods = []
+                likelihood = self.score_smiles(row['protein_sequence'], row['smiles'])
+                if likelihood is None:
+                    continue
+                likelihoods.append({
+                    'is_hit': 1,
+                    'likelihood': likelihood,
+                    })
+                for j, decoy_row in df.iterrows():
+                    if i == j:
+                        continue
+                    likelihood = self.score_smiles(row['protein_sequence'], decoy_row['smiles'])
+                    if likelihood is None:
+                        continue
+                    likelihoods.append({
+                        'is_hit': 0,
+                        'likelihood': likelihood
+                        })
+                likelihood_df = pd.DataFrame(likelihoods)
+                likelihood_df.to_csv(output_file, index=False)
+            auc_roc_score = compute_auc_roc(likelihood_df)
+            auc_pr_score = compute_auc_pr(likelihood_df)
+            all_auc_roc_scores.append(auc_roc_score)
+            all_auc_pr_scores.append(auc_pr_score)
+            likelihood_df.sort_values(by='likelihood', ascending=False, inplace=True)
+            rank_of_hit = np.where(likelihood_df.is_hit == 1)[0][0]
+            rank_scores.append(rank_of_hit) 
+            print(f"{row['system_id']} AUC ROC: {auc_roc_score}, AUC PR: {auc_pr_score}, rank of hit: {rank_of_hit}")
+            results.append({
+                'system_id': row['system_id'],
+                'auc_roc': auc_roc_score,
+                'auc_pr': auc_pr_score,
+                'rank_of_hit': rank_of_hit
+            })
+        
+        results_df = pd.DataFrame(results)
+        results_df.to_csv(os.path.join(save_dir, "results.csv"), index=False)
+        return results_df
+    
+    
+    def generate_likelihoods(self, df):
+        for i, row in tqdm.tqdm(df.iterrows(), total=len(df)):
+            if i == 0 or ('likelihood' in row and not pd.isna(row.likelihood)):
+                continue
+            decoy_smiles = df.iloc[i-1]['smiles']
+            sequence = row['protein_sequence']
+            smiles = row['smiles']
+            try:
+                true_likelihood = self.score_smiles(sequence, smiles)
+                decoy_likelihood = self.score_smiles(sequence, decoy_smiles)
+            except Exception as e:
+                logging.warning(f"Error scoring SMILES for {row['system_id']}: {e}")
+                true_likelihood = None
+                decoy_likelihood = None
+                return df
+            df.loc[i, 'likelihood'] = true_likelihood
+            df.loc[i, 'decoy_likelihood'] = decoy_likelihood
+        return df
+    
     def generate_smiles_data(self, list_of_sequences=None, num_generated=10):
         sequences_input = []
 
@@ -148,17 +249,19 @@ class SMILESGenerator:
         logging.info(f"Completed SMILES generation for {len(data)} entries.")
         return pd.DataFrame(data)
 
-def build_plixer_test_dataset():
+def build_plixer_test_dataset(result_path="evaluation_results/bubba_zjhnye4j_2025-05-11_highPropPoc2Mol/combined_model_results.csv"):
     # columns are system_id,protein_sequence,smiles
     test_df = pd.read_csv("../hiqbind/plixer_test_data.csv")
-    plixer_test_results = pd.read_csv("evaluation_results/bubba_zjhnye4j_2025-05-11_highPropPoc2Mol/combined_model_results.csv")
-    test_df = test_df[test_df.system_id.isin(plixer_test_results.name)]
-    return test_df
+    plixer_test_results = pd.read_csv(result_path)
+    for i, row in plixer_test_results.iterrows():
+        plixer_test_results.loc[i, 'protein_sequence'] = test_df[test_df.system_id == row['name']].iloc[0]['protein_sequence']
+        plixer_test_results.loc[i, 'system_id'] = row['name']
+    return plixer_test_results
 
 def analyse_df(
     df, 
     plixer_csv="evaluation_results/bubba_zjhnye4j_2025-05-11_highPropPoc2Mol/combined_model_results.csv",
-    output_dir="evaluation_results/druggen_analysis"
+    output_dir="evaluation_results/druggen_analysis_v2"
     ):
     logging.info("Analyzing generated SMILES against true molecules...")
     os.makedirs(output_dir, exist_ok=True)
@@ -210,24 +313,24 @@ def analyse_df(
         decoy_tanimoto_similarity = get_tanimoto_similarity_from_smiles(decoy_smiles, generated_smiles) if decoy_smiles else None
         true_vs_decoy_tanimoto_similarity = get_tanimoto_similarity_from_smiles(true_smiles, decoy_smiles) if decoy_smiles else None
         
-        # Calculate maximum common substructure
-        mcs_num_atoms = get_max_common_substructure_num_atoms(true_smiles, generated_smiles)
-        decoy_mcs_num_atoms = get_max_common_substructure_num_atoms(decoy_smiles, generated_smiles) if decoy_smiles else None
-        true_vs_decoy_mcs_num_atoms = get_max_common_substructure_num_atoms(true_smiles, decoy_smiles) if decoy_smiles else None
+        # # Calculate maximum common substructure
+        # mcs_num_atoms = get_max_common_substructure_num_atoms(true_smiles, generated_smiles)
+        # decoy_mcs_num_atoms = get_max_common_substructure_num_atoms(decoy_smiles, generated_smiles) if decoy_smiles else None
+        # true_vs_decoy_mcs_num_atoms = get_max_common_substructure_num_atoms(true_smiles, decoy_smiles) if decoy_smiles else None
         
-        # Get number of heavy atoms in true molecule
-        try:
-            true_num_heavy_atoms = true_mol.GetNumHeavyAtoms()
-        except:
-            true_num_heavy_atoms = None
+        # # Get number of heavy atoms in true molecule
+        # try:
+        #     true_num_heavy_atoms = true_mol.GetNumHeavyAtoms()
+        # except:
+        #     true_num_heavy_atoms = None
             
-        # Calculate proportion of common structure
-        if valid_smiles and true_num_heavy_atoms is not None and true_num_heavy_atoms > 0:
-            prop_common_structure = mcs_num_atoms / true_num_heavy_atoms if mcs_num_atoms is not None else None
-            decoy_prop_common_structure = decoy_mcs_num_atoms / true_num_heavy_atoms if decoy_mcs_num_atoms is not None else None
-        else:
-            prop_common_structure = None
-            decoy_prop_common_structure = None
+        # # Calculate proportion of common structure
+        # if valid_smiles and true_num_heavy_atoms is not None and true_num_heavy_atoms > 0:
+        #     prop_common_structure = mcs_num_atoms / true_num_heavy_atoms if mcs_num_atoms is not None else None
+        #     decoy_prop_common_structure = decoy_mcs_num_atoms / true_num_heavy_atoms if decoy_mcs_num_atoms is not None else None
+        # else:
+        #     prop_common_structure = None
+        #     decoy_prop_common_structure = None
             
         # For metrics like loss/log-likelihood where we would typically have model outputs,
         # we'll use placeholder values since we're only working with final SMILES strings
@@ -247,12 +350,12 @@ def analyse_df(
             'tanimoto_similarity': tanimoto_similarity,
             'decoy_tanimoto_similarity': decoy_tanimoto_similarity,
             'true_vs_decoy_tanimoto_similarity': true_vs_decoy_tanimoto_similarity,
-            'mcs_num_atoms': mcs_num_atoms,
-            'decoy_mcs_num_atoms': decoy_mcs_num_atoms,
-            'true_vs_decoy_mcs_num_atoms': true_vs_decoy_mcs_num_atoms,
-            'prop_common_structure': prop_common_structure,
-            'decoy_prop_common_structure': decoy_prop_common_structure,
-            'true_num_heavy_atoms': true_num_heavy_atoms,
+            # 'mcs_num_atoms': mcs_num_atoms,
+            # 'decoy_mcs_num_atoms': decoy_mcs_num_atoms,
+            # 'true_vs_decoy_mcs_num_atoms': true_vs_decoy_mcs_num_atoms,
+            # 'prop_common_structure': prop_common_structure,
+            # 'decoy_prop_common_structure': decoy_prop_common_structure,
+            # 'true_num_heavy_atoms': true_num_heavy_atoms,
             'sequence': row.sequence
         })
         
@@ -264,9 +367,27 @@ def analyse_df(
     
     # Save results
     results_df.to_csv(f'{output_dir}/druggen_results.csv', index=False)
-    
-    # Summarize results using the imported function
+    plinder_results_subset = pd.read_csv(
+        "evaluation_results/bubba_zjhnye4j_2025-05-11_highPropPoc2Mol/plinder_test_split_results.csv"
+    )['name'].values
+    seq_sim_results_subset = pd.read_csv(
+        "evaluation_results/bubba_zjhnye4j_2025-05-11_highPropPoc2Mol/seq_sim_test_split_results.csv"
+    )['name'].values
+    results_plinder_subset = results_df[results_df.system_id.isin(plinder_results_subset)]
+    results_seq_sim_subset = results_df[results_df.system_id.isin(seq_sim_results_subset)]
+    results_plinder_subset.to_csv(f'{output_dir}/plinder_test_split_results.csv', index=False)
+    results_seq_sim_subset.to_csv(f'{output_dir}/seq_sim_test_split_results.csv', index=False)
+    print("\nFull test set:")
+    compute_enrichment_factor(results_df, threshold=0.3)
     drug_summarize_results(results_df, output_dir)
+    print("\nPlinder test split:")
+    compute_enrichment_factor(results_plinder_subset, threshold=0.3)
+    drug_summarize_results(results_plinder_subset, output_dir)
+    print("\nSequence similarity test split:")
+    compute_enrichment_factor(results_seq_sim_subset, threshold=0.3)
+    drug_summarize_results(results_seq_sim_subset, output_dir)
+    # Summarize results using the imported function
+    
     
     return results_df
 
@@ -311,34 +432,50 @@ def drug_summarize_results(results_df, output_dir=None):
     return results
 
 # Main function for inference
-def run_inference(num_generated=1, output_file="evaluation_results/drug_gen_on_plixer_test_set.csv"):
+def run_inference(num_generated=1, output_file="evaluation_results/druggen_v2/drug_gen_on_plixer_test_set_w_likelihoods.csv"):
     # Setup logging
+    os.makedirs(os.path.dirname(output_file), exist_ok=True)
     setup_logging(output_file)
     if os.path.exists(output_file):
         df = pd.read_csv(output_file)
+        analyse_df(df)
 
     else:
         model_name = "alimotahharynia/DrugGen"
         model, tokenizer = load_model_and_tokenizer(model_name)
+        for ds_path in [
+            "evaluation_results/bubba_zjhnye4j_2025-05-11_highPropPoc2Mol/combined_model_results.csv",
+            "evaluation_results/bubba_zjhnye4j_2025-05-11_highPropPoc2Mol/plinder_test_split_results.csv",
+            "evaluation_results/bubba_zjhnye4j_2025-05-11_highPropPoc2Mol/seq_sim_test_split_results.csv"
+        ]:
+            experiment_name = os.path.basename(ds_path).replace(".csv", "")
+            print(f"\n\nRunning experiment: {experiment_name}")
+            experiment_output_file = output_file.replace(".csv", f"_{experiment_name}.csv")
+            dataset = build_plixer_test_dataset(
+                result_path=ds_path
+            )
+            id_to_sequence = {row["system_id"]: row["protein_sequence"] for i, row in dataset.iterrows()}
 
-        dataset = build_plixer_test_dataset()
-        id_to_sequence = {row["system_id"]: row["protein_sequence"] for i, row in dataset.iterrows()}
+            # Initialize the generator
+            generator = SMILESGenerator(model, tokenizer, id_to_sequence, output_file=experiment_output_file)
+            # if os.path.exists(experiment_output_file):
+            #     dataset = pd.read_csv(experiment_output_file)
+            generator.generate_all_decoy_likelihoods(dataset, save_dir=f"evaluation_results/druggen/{experiment_name}_all_decoy_likelihoods")
+            # df = generator.generate_likelihoods(dataset)
+            df.to_csv(output_file, index=False)
+            logging.info("Starting SMILES generation process...")
+            
+            # Generate SMILES data
+            df = generator.generate_smiles_data(
+                list_of_sequences=id_to_sequence.values(),
+                num_generated=num_generated
+            )
 
-        # Initialize the generator
-        generator = SMILESGenerator(model, tokenizer, id_to_sequence, output_file=output_file)
-        logging.info("Starting SMILES generation process...")
+            # Save the output
+            df.to_csv(experiment_output_file, sep="\t", index=False)
+            print(f"Generated SMILES saved to {experiment_output_file}")
+            # analyse_df(df, plixer_csv=ds_path)
         
-        # Generate SMILES data
-        df = generator.generate_smiles_data(
-            list_of_sequences=id_to_sequence.values(),
-            num_generated=num_generated
-        )
-
-        # Save the output
-        df.to_csv(output_file, sep="\t", index=False)
-        print(f"Generated SMILES saved to {output_file}")
-    analyse_df(df)
-    
 
 if __name__=="__main__":
     run_inference()

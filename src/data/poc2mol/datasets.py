@@ -272,8 +272,14 @@ class ParquetDataset(Dataset):
             if not hasattr(self, 'file_mapping'):
                 # If indices were not created above, create file mapping separately
                 self.file_mapping = self._create_file_mapping(indices_dir, data_path)
-        
         # Get list of cluster IDs
+        if self.config.system_ids is not None:
+            filtered_cluster_index  = {}
+            for cluster_id, samples in self.cluster_index.items():
+                filtered_samples = [sample for sample in samples if sample['system_id'] in self.config.system_ids]
+                if filtered_samples:
+                    filtered_cluster_index[cluster_id] = filtered_samples
+            self.cluster_index = filtered_cluster_index
         self.cluster_ids = sorted(list(self.cluster_index.keys()))
         
         # Override config values if provided

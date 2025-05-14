@@ -344,7 +344,7 @@ def build_mmseqs_database(sequences: dict[str, str], tmp_dir: str, db_prefix: st
     return db_path
 
 
-def batch_search_protein_similarities(query_db: str, target_db: str, tmp_dir: str) -> dict[str, dict[str, float]]:
+def batch_search_protein_similarities(query_db: str, target_db: str, tmp_dir: str, c=0.5) -> dict[str, dict[str, float]]:
     """Perform batch MMSEQS search between query and target databases.
     
     Args:
@@ -364,8 +364,9 @@ def batch_search_protein_similarities(query_db: str, target_db: str, tmp_dir: st
         search_prefix,
         tmp_dir,
         "--min-seq-id", "0.1",
-        "-c", "0.5",
+        "-c", str(c),
         "--threads", "20",
+        # "--cov-mode", "1", # coverage is measured on target
         "--remove-tmp-files", "0",  # Keep temporary files for convertalis
         "-v", "1",
     ]

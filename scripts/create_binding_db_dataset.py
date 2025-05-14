@@ -9,6 +9,9 @@ import json
 import glob
 import logging
 from pathlib import Path
+import shutil
+
+from create_hiqbind_dataset import build_mmseqs_database, batch_search_protein_similarities
 
 """
 Goal is to create a test dataset using BindingDB where we 
@@ -25,6 +28,50 @@ and search this against all of the chains in the training dataset
 if any chains have a sequence identity of greater than 30% to the training set at 50% coverage
 then we remove the system from BindingDB
 The remaining rows are then used as a strict test split.
+
+BindingDB columns:
+BindingDB Reactant_set_id
+Ligand SMILES
+Ligand InChI
+Ligand InChI Key
+BindingDB MonomerID
+BindingDB Ligand Name
+Target Name
+Target Source Organism According to Curator or DataSource
+Ki (nM)
+IC50 (nM)
+Kd (nM)
+EC50 (nM)
+kon (M-1-s-1)
+koff (s-1)
+pH
+Temp (C)
+Curation/DataSource
+Article DOI
+Link to Ligand-Target Pair in BindingDB
+Ligand HET ID in PDB
+PDB ID(s) for Ligand-Target Complex
+PubChem CID
+PubChem SID
+ChEBI ID of Ligand
+ChEMBL ID of Ligand
+DrugBank ID of Ligand
+IUPHAR_GRAC ID of Ligand
+KEGG ID of Ligand
+ZINC ID of Ligand
+Number of Protein Chains in Target (>1 implies a multichain complex)
+BindingDB Target Chain Sequence
+PDB ID(s) of Target Chain
+UniProt (SwissProt) Recommended Name of Target Chain
+UniProt (SwissProt) Entry Name of Target Chain
+UniProt (SwissProt) Primary ID of Target Chain
+UniProt (SwissProt) Secondary ID(s) of Target Chain
+UniProt (SwissProt) Alternative ID(s) of Target Chain
+UniProt (TrEMBL) Submitted Name of Target Chain
+UniProt (TrEMBL) Entry Name of Target Chain
+UniProt (TrEMBL) Primary ID of Target Chain
+UniProt (TrEMBL) Secondary ID(s) of Target Chain
+UniProt (TrEMBL) Alternative ID(s) of Target Chain
 """
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
@@ -32,110 +79,6 @@ log = logging.getLogger(__name__)
 
 def system_id_pdb_id(system_id):
     return system_id.split("_")[0]
-
-def extract_protein_sequence(pdb_path: str) -> str:
-    """Extract the amino-acid sequence from a PDB file (first model, all chains)."""
-    parser = PDBParser(QUIET=True)
-    try:
-        structure = parser.get_structure("struct", pdb_path)
-    except Exception as e:
-        log.error(f"Error parsing PDB file {pdb_path}: {e}")
-        return ""
-    ppb = PPBuilder()
-    seq = ""
-    for pp in ppb.build_peptides(structure):
-        seq += str(pp.get_sequence())
-    return seq
-
-def build_mmseqs_database(sequences: dict[str, str], tmp_dir: str, db_prefix: str) -> str:
-    """Build an MMSEQS database from a dictionary of sequences.
-    
-    Args:
-        sequences: Dictionary mapping sequence IDs to sequences
-        tmp_dir: Temporary directory for MMSEQS files
-        db_prefix: Prefix for the output database files
-        
-    Returns:
-        Path to the created database
-    """
-    os.makedirs(tmp_dir, exist_ok=True)
-    
-    # Write sequences to fasta file
-    fasta_path = os.path.join(tmp_dir, f"{db_prefix}.fasta")
-    with open(fasta_path, "w") as f:
-        for seq_id, seq in sequences.items():
-            if seq and len(seq) >= 50:  # Only include sequences longer than 50 residues
-                f.write(f">{seq_id}\n{seq}\n")
-    
-    # Create MMSEQS database
-    db_path = os.path.join(tmp_dir, db_prefix)
-    cmd = [
-        "mmseqs", "createdb",
-        fasta_path,
-        db_path,
-        "--compressed", "1"
-    ]
-    subprocess.run(cmd, check=True)
-    
-    return db_path
-
-def batch_search_protein_similarities(query_db: str, target_db: str, tmp_dir: str) -> pd.DataFrame:
-    """Perform batch MMSEQS search between query and target databases.
-    
-    Args:
-        query_db: Path to query database
-        target_db: Path to target database
-        tmp_dir: Temporary directory for MMSEQS files
-        
-    Returns:
-        DataFrame with search results
-    """
-    # Run MMSEQS search
-    search_prefix = os.path.join(tmp_dir, "search_out")
-    cmd = [
-        "mmseqs", "search",
-        query_db,
-        target_db,
-        search_prefix,
-        tmp_dir,
-        "--min-seq-id", "0.3",   # 30% sequence identity threshold
-        "-c", "0.5",            # 50% coverage threshold
-        "--threads", "20",
-        "--remove-tmp-files", "0",  # Keep temporary files for convertalis
-        "-v", "1",
-    ]
-    subprocess.run(cmd, check=True)
-    
-    # Convert search results to BLAST format
-    result_file = os.path.join(tmp_dir, "results.m8")
-    cmd = [
-        "mmseqs", "convertalis",
-        query_db,
-        target_db,
-        search_prefix,
-        result_file,
-        "--format-output", "query,target,pident,qcov,qlen,alnlen",
-        "--threads", "20"
-    ]
-    subprocess.run(cmd, check=True)
-    
-    # Parse results
-    similarities = []
-    colnames = ["query", "target", "pident", "qcov", "qlen", "alnlen"]
-    if os.path.exists(result_file):
-        with open(result_file) as f:
-            for line in f:
-                parts = line.strip().split("\t")
-                if len(parts) == len(colnames):
-                    new_row = dict(zip(colnames, parts))
-                    similarities.append(new_row)
-    df = pd.DataFrame(similarities)
-    if not df.empty:
-        df["pident"] = df["pident"].astype(float)
-        df["qcov"] = df["qcov"].astype(float)
-        df["qlen"] = df["qlen"].astype(int)
-        df["alnlen"] = df["alnlen"].astype(int)
-    return df
 
 def extract_sequences_from_bindingdb(bindingdb_df):
     """Extract protein sequences from BindingDB DataFrame."""
@@ -146,14 +89,14 @@ def extract_sequences_from_bindingdb(bindingdb_df):
         sequence = row[sequence_col]
         if isinstance(sequence, str) and len(sequence) >= 50:
             # Create a unique ID for each sequence
-            seq_id = f"{id_prefix}_{row.name}"
+            seq_id = f"{id_prefix}_{row['BindingDB Reactant_set_id']}"
             sequences[seq_id] = sequence
     
     # Process all protein sequence columns
     for i in range(50):  # There are up to 50 chains in the BindingDB data
         seq_col = f"BindingDB Target Chain Sequence{'.'+str(i) if i > 0 else ''}"
         if seq_col in bindingdb_df.columns:
-            for idx, row in tqdm(bindingdb_df.iterrows(), desc=f"Processing {seq_col}", total=len(bindingdb_df)):
+            for idx, row in bindingdb_df.iterrows():
                 process_sequence_field(row, seq_col, f"chain_{i}")
     
     log.info(f"Extracted {len(sequences)} sequences from BindingDB")
@@ -164,11 +107,90 @@ def aggregate_pdb_ids(bindingdb_df):
     for i, row in bindingdb_df.iterrows():
         pdb_ids = []
         for pdb_id_col in pdb_id_cols:
-            if pd.notna(row[pdb_id_col]) and len(row[pdb_id_col]) > 0:
+            if pd.notna(row[pdb_id_col]) and isinstance(row[pdb_id_col], str) and len(row[pdb_id_col]) > 0:
                 pdb_ids.extend(row[pdb_id_col].split(","))
         pdb_ids = list(set(pdb_ids))
         bindingdb_df.at[i, "pdb_ids"] = ",".join(pdb_ids)
     return bindingdb_df
+
+def remove_rows_where_pdb_id_is_in_training_set(df, train_pdb_ids):
+    
+    def has_training_pdb(pdb_ids_str):
+        if not isinstance(pdb_ids_str, str):
+            return False
+        pdb_ids = pdb_ids_str.lower().split(',')
+        return any(pdb_id.strip() in train_pdb_ids for pdb_id in pdb_ids)
+        
+    pdb_id_col = "pdb_ids"
+    filtered_df = df[~df[pdb_id_col].apply(has_training_pdb)]
+    log.info(f"After PDB ID filtering: {len(filtered_df)}/{len(df)} entries remaining")
+    return filtered_df
+
+def perform_mmseqs_similarity_filtering(
+        bindingdb_df, 
+        train_db, 
+        tmpdir, 
+        similarity_threshold=30, 
+        output_dir="../BindingDB/filtered_chunks",
+        c=0.1,
+        min_alnlen=50
+        ):
+    """
+    Filter BindingDB entries based on sequence similarity to training set.
+    Returns the filtered DataFrame and a DataFrame with similarity scores.
+    
+    Args:
+        bindingdb_df: DataFrame containing BindingDB entries
+        train_db: Path to the pre-built training database
+        tmpdir: Directory for temporary files
+        similarity_threshold: Maximum allowed sequence identity percentage
+        output_dir: Directory to save output files
+        
+    Returns:
+        filtered_df: DataFrame with entries below similarity threshold
+        similarities_df: DataFrame with similarity scores
+    """
+    # Create output directory if it doesn't exist
+    os.makedirs(output_dir, exist_ok=True)
+    
+    # Extract protein sequences from BindingDB chunk
+    bindingdb_seqs = extract_sequences_from_bindingdb(bindingdb_df)
+    
+    if not bindingdb_seqs:
+        log.warning("No valid sequences found in this chunk")
+        # Return an empty similarity DataFrame with the right structure
+        similarity_df = pd.DataFrame(columns=["query", "target", "pident", "alnlen", "qlen", "tlen"])
+        bindingdb_df["max_sequence_identity"] = 0.0
+        return bindingdb_df, similarity_df
+    
+    # Build MMSEQS database only for the current chunk sequences
+    bindingdb_db = build_mmseqs_database(bindingdb_seqs, tmpdir, "bindingdb_db")
+    
+    # Perform MMSEQS search against the pre-built training database
+    similarities_df = batch_search_protein_similarities(bindingdb_db, train_db, tmpdir, c=0.1)
+    similarities_df = similarities_df[similarities_df["alnlen"] >= min_alnlen]
+    # Create a mapping from sequence IDs to BindingDB entry IDs
+    entry_to_max_identity = {}
+    
+    if not similarities_df.empty:
+        similarities_df["BindingDB Reactant_set_id"] = similarities_df["query"].apply(lambda x: x.split("_")[-1])
+        similarity_lookup = similarities_df[["BindingDB Reactant_set_id", "pident"]]
+        similarity_lookup = similarity_lookup.groupby("BindingDB Reactant_set_id").max().reset_index()
+        entry_to_max_identity = dict(zip(similarity_lookup["BindingDB Reactant_set_id"].astype(int), similarity_lookup["pident"]))
+
+
+    
+    # Add the maximum sequence identity to the DataFrame
+    bindingdb_df["max_sequence_identity"] = bindingdb_df["BindingDB Reactant_set_id"].map(
+        lambda x: entry_to_max_identity.get(x, 0.0)
+    )
+    
+    # Filter out entries with sequence identity above the threshold
+    filtered_df = bindingdb_df[bindingdb_df["max_sequence_identity"] <= similarity_threshold]
+    
+    log.info(f"After sequence similarity filtering: {len(filtered_df)}/{len(bindingdb_df)} entries remaining")
+    
+    return filtered_df, similarities_df
 
 def main():
     # Load training data
@@ -181,97 +203,117 @@ def main():
     train_pdb_ids = set(train_df["pdb_id"].str.lower())
     log.info(f"Found {len(train_pdb_ids)} unique PDB IDs in the training set")
     
+    # Extract protein sequences from training set
+    log.info("Extracting protein sequences from training set")
+    train_seqs = {row["system_id"]: row["protein_sequence"] for _, row in train_df.iterrows() if pd.notna(row["protein_sequence"])}
+    
+    # Create output directories
+    output_base_dir = "../BindingDB"
+    filtered_chunks_dir = os.path.join(output_base_dir, "filtered_chunks")
+    similarity_data_dir = os.path.join(output_base_dir, "similarity_data")
+    mmseqs_dir = os.path.join(output_base_dir, "mmseqs_db")
+    os.makedirs(filtered_chunks_dir, exist_ok=True)
+    os.makedirs(similarity_data_dir, exist_ok=True)
+    os.makedirs(mmseqs_dir, exist_ok=True)
+    
     # Load BindingDB data
     bindingdb_path = "../BindingDB/BindingDB_All.tsv"
     if not os.path.exists(bindingdb_path):
         log.error(f"BindingDB file not found at {bindingdb_path}")
         return
     
-    log.info(f"Loading BindingDB data from {bindingdb_path}")
-    # Using a chunksize to handle the large file
-    chunks = []
-    for chunk in tqdm(pd.read_csv(bindingdb_path, sep='\t', chunksize=100000), desc="Loading BindingDB data"):
-        chunks.append(chunk)
-        break
-    bindingdb_df = pd.concat(chunks)
-    log.info(f"Loaded {len(bindingdb_df)} entries from BindingDB")
-    bindingdb_df = aggregate_pdb_ids(bindingdb_df)
+    log.info(f"Processing BindingDB data from {bindingdb_path}")
     
-    # First filter: Remove entries with PDB IDs in the training set
-    pdb_id_col = "pdb_ids"
-    if pdb_id_col in bindingdb_df.columns:
-        # Function to check if any PDB ID from an entry matches training set PDB IDs
-        def has_training_pdb(pdb_ids_str):
-            if not isinstance(pdb_ids_str, str):
-                return False
-            pdb_ids = pdb_ids_str.lower().split(',')
-            return any(pdb_id.strip() in train_pdb_ids for pdb_id in pdb_ids)
-        
-        # Filter out entries with matching PDB IDs
-        filtered_df = bindingdb_df[~bindingdb_df[pdb_id_col].apply(has_training_pdb)]
-        log.info(f"After PDB ID filtering: {len(filtered_df)}/{len(bindingdb_df)} entries remaining")
+    # Check for any previously processed chunks
+    existing_chunks = glob.glob(os.path.join(filtered_chunks_dir, "chunk_*.csv"))
+    start_chunk = len(existing_chunks)
+    log.info(f"Found {start_chunk} previously processed chunks")
+    
+    # Process the data in chunks
+    filtered_chunks = []
+    chunk_size = 10000
+    chunk_id = start_chunk
+
+    # Create a persistent directory for the training database
+    # Build the training database once in a dedicated location
+    train_db_path = os.path.join(mmseqs_dir, "train_db")
+    
+    # Check if training database already exists
+    if os.path.exists(train_db_path) and os.path.exists(f"{train_db_path}.dbtype"):
+        log.info(f"Using existing training database at {train_db_path}")
+        train_db = train_db_path
     else:
-        filtered_df = bindingdb_df
-        log.warning(f"PDB ID column '{pdb_id_col}' not found in BindingDB data")
-    
-    # Second filter: Remove entries with protein sequences similar to training set
-    with tempfile.TemporaryDirectory() as tmpd:
-        log.info("Extracting protein sequences from BindingDB")
-        bindingdb_seqs = extract_sequences_from_bindingdb(filtered_df)
-        
-        log.info("Extracting protein sequences from training set")
-        train_seqs = {row["system_id"]: row["protein_sequence"] for _, row in train_df.iterrows() if pd.notna(row["protein_sequence"])}
-        
-        log.info("Building MMSEQS databases")
-        bindingdb_db = build_mmseqs_database(bindingdb_seqs, tmpd, "bindingdb_db")
-        train_db = build_mmseqs_database(train_seqs, tmpd, "train_db")
-        
-        log.info("Performing MMSEQS search to find similar proteins")
-        similarities_df = batch_search_protein_similarities(bindingdb_db, train_db, tmpd)
-        
-        if similarities_df.empty:
-            log.info("No similar proteins found between BindingDB and training set")
-            similar_entries = set()
-        else:
-            # Extract the entry IDs that have similar proteins
-            similar_entries = set()
-            for query in similarities_df["query"]:
-                # Extract the original row ID from the query ID
-                parts = query.split('_')
-                if len(parts) >= 2:
-                    try:
-                        entry_id = int(parts[-1])
-                        similar_entries.add(entry_id)
-                    except ValueError:
-                        continue
+        # Create a temporary directory for building the training database
+        with tempfile.TemporaryDirectory() as tmp_train_dir:
+            log.info("Building training sequence database with MMSEQS")
+            train_db = build_mmseqs_database(train_seqs, tmp_train_dir, "train_db")
             
-            log.info(f"Found {len(similar_entries)} BindingDB entries with similar proteins to training set")
-        
-        # Filter out entries with similar proteins
-        final_df = filtered_df[~filtered_df.index.isin(similar_entries)]
-        log.info(f"Final dataset after protein similarity filtering: {len(final_df)}/{len(filtered_df)} entries")
+            # Copy the training database to the persistent location
+            for f in glob.glob(f"{train_db}*"):
+                dst = os.path.join(mmseqs_dir, os.path.basename(f))
+                shutil.copy2(f, dst)
+            
+            # Update the path to the persistent location
+            train_db = train_db_path
+            log.info(f"Training database built and stored at {train_db}")
+    
+    # Process chunks with a temporary directory for each chunk
+    for chunk in tqdm(pd.read_csv(bindingdb_path, sep='\t', chunksize=chunk_size, 
+                                  skiprows=range(1, chunk_id*chunk_size) if chunk_id > 0 else None), 
+                      desc="Processing BindingDB chunks"):
+        log.info(f"Processing chunk {chunk_id} with {len(chunk)} entries")
+        try:
+            # Aggregate PDB IDs
+            chunk = aggregate_pdb_ids(chunk)
+            
+            # First filter: Remove entries with PDB IDs in training set
+            chunk = remove_rows_where_pdb_id_is_in_training_set(chunk, train_pdb_ids)
+            
+            if len(chunk) > 0:
+                # Create a temporary directory for this chunk processing
+                with tempfile.TemporaryDirectory() as chunk_tmpdir:
+                    # Second filter: Remove entries with similar protein sequences
+                    filtered_chunk, similarities_df = perform_mmseqs_similarity_filtering(
+                        chunk, train_db, chunk_tmpdir, similarity_threshold=30, output_dir=filtered_chunks_dir
+                    )
+                    
+                    # Save the filtered chunk
+                    chunk_path = os.path.join(filtered_chunks_dir, f"chunk_{chunk_id}.csv")
+                    filtered_chunk.to_csv(chunk_path, index=False)
+                    log.info(f"Saved filtered chunk to {chunk_path}")
+                    
+                    # Save similarity data
+                    if not similarities_df.empty:
+                        sim_path = os.path.join(similarity_data_dir, f"similarity_chunk_{chunk_id}.csv")
+                        similarities_df.to_csv(sim_path, index=False)
+                        log.info(f"Saved similarity data to {sim_path}")
+                    
+                    # Append to filtered chunks list
+                    filtered_chunks.append(filtered_chunk)
+            
+            chunk_id += 1
+        except Exception as e:
+            chunk_id += 1
+            log.error(f"Error processing chunk {chunk_id}: {e}")
+            continue
+    
+    # Combine all filtered chunks
+    if filtered_chunks:
+        final_df = pd.concat(filtered_chunks, ignore_index=True)
+        log.info(f"Final dataset after filtering: {len(final_df)} entries")
         
         # Save the final dataset
-        output_path = "../BindingDB/bindingdb_test_set.csv"
+        output_path = os.path.join(output_base_dir, "bindingdb_test_set.csv")
         final_df.to_csv(output_path, index=False)
         log.info(f"Saved final test dataset to {output_path}")
         
-        # Save summary statistics
-        summary = {
-            "original_entries": len(bindingdb_df),
-            "after_pdb_filtering": len(filtered_df),
-            "final_entries": len(final_df),
-            "filtered_by_pdb": len(bindingdb_df) - len(filtered_df),
-            "filtered_by_protein_similarity": len(filtered_df) - len(final_df)
-        }
-        
-        with open("bindingdb_filtering_summary.json", "w") as f:
-            json.dump(summary, f, indent=2)
-        log.info("Saved filtering summary to bindingdb_filtering_summary.json")
+        # Save a separate file with just the sequence identity information
+        seq_identity_df = final_df[["BindingDB Reactant_set_id", "max_sequence_identity"]]
+        seq_identity_path = os.path.join(output_base_dir, "bindingdb_sequence_identity.csv")
+        seq_identity_df.to_csv(seq_identity_path, index=False)
+        log.info(f"Saved sequence identity data to {seq_identity_path}")
+    else:
+        log.warning("No data remained after filtering")
 
 if __name__ == "__main__":
     main()
-
-
-
-

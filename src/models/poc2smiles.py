@@ -52,7 +52,16 @@ class CombinedProteinToSmilesModel(L.LightningModule):
         
         self.override_optimizer_on_load = override_optimizer_on_load
     
-    def forward(self, protein_voxels, labels=None, decoy_labels=None, ligand_voxels=None):
+    def forward(
+            self, 
+            protein_voxels, 
+            labels=None, 
+            decoy_labels=None, 
+            ligand_voxels=None, 
+            sample_smiles=True,
+            poc2mol_output=None,
+            return_poc2mol_output=False,
+            ):
         """
         Forward pass through the combined model.
         
@@ -65,7 +74,8 @@ class CombinedProteinToSmilesModel(L.LightningModule):
                 - ligand_voxels: Generated ligand voxels [batch_size, channels, x, y, z]
         """
         # Generate ligand voxels from protein voxels
-        poc2mol_output = self.poc2mol_model(protein_voxels, labels=ligand_voxels)
+        if poc2mol_output is None:
+            poc2mol_output = self.poc2mol_model(protein_voxels, labels=ligand_voxels)
         if isinstance(poc2mol_output, dict):
             pred_vox = poc2mol_output['pred_vox']
         else:
@@ -73,13 +83,18 @@ class CombinedProteinToSmilesModel(L.LightningModule):
         pred_vox = torch.sigmoid(pred_vox)
         
         vox2smiles_output = self.vox2smiles_model(pred_vox, labels=labels)
-        sampled_smiles = self.vox2smiles_model.generate_smiles(pred_vox)
+        if sample_smiles:
+            sampled_smiles = self.vox2smiles_model.generate_smiles(pred_vox)
+        else:
+            sampled_smiles = None
         result = {
             "logits": vox2smiles_output["logits"],
             "predicted_ligand_voxels": pred_vox,
             "sampled_smiles": sampled_smiles,
             "loss": vox2smiles_output['loss'],
         }
+        if return_poc2mol_output:
+            result['poc2mol_output'] = poc2mol_output
         if labels is not None:
             result['poc2mol_bce'] = poc2mol_output['bce'].mean().item()
             result['poc2mol_dice'] = poc2mol_output['dice'].mean().item()

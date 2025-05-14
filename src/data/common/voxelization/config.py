@@ -75,9 +75,8 @@ class Poc2MolDataConfig(VoxelizationConfig):
     ligand_channel_indices: List[int] = field(default_factory=lambda: [5, 6, 7, 8, 9, 10, 11, 12, 13, 14])
     protein_channel_indices: List[int] = field(default_factory=lambda: [0, 1, 2, 3, 4, 5])
     
-    # Optional list of specific filenames to use
     fnames: Optional[List[str]] = None
-    
+    system_ids: Optional[List[str]] = None
 
 
 @dataclass
