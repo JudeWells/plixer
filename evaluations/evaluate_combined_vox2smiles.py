@@ -334,7 +334,7 @@ def summarize_results(results_df, output_dir=None):
     return results
 
 
-def all_decoy_smiles_likelihood_scorring(
+def all_decoy_smiles_likelihood_scoring(
         combined_model: CombinedProteinToSmilesModel, 
         test_dataloader: DataLoader,
         df: pd.DataFrame,
@@ -504,6 +504,7 @@ def compute_enrichment_factor(results_df, threshold=0.3):
 def main():
     args = parse_args()
     similarity_df = pd.read_csv("../hiqbind/similarity_analysis/test_similarities.csv")
+    test_df_path = f'{args.output_dir}/seq_sim_test_split_results.csv'
     if os.path.exists(f'{args.output_dir}/combined_model_results_all_decoy_likelihoods.csv'):
         results_df = pd.read_csv(f'{args.output_dir}/combined_model_results_all_decoy_likelihoods.csv')
         sequence_split_system_ids = similarity_df[
@@ -541,7 +542,7 @@ def main():
             complex_dataset_config, 
             args.dtype,
             args.pdb_dir,
-            system_ids=list(pd.read_csv(f'{args.output_dir}/combined_model_results_backup.csv')['name'].values)
+            system_ids=list(pd.read_csv(test_df_path)['name'].values)
         )
     else:
         test_dataloader = build_pdb_test_dataloader(
@@ -549,12 +550,12 @@ def main():
             args.pdb_dir, 
             args.dtype
         )
-    smiles_likelihood_results = all_decoy_smiles_likelihood_scorring(
-        combined_model, 
-        test_dataloader,
-        df = pd.read_csv(f'{args.output_dir}/combined_model_results_backup.csv'),
-        output_dir=os.path.join(args.output_dir, "plixer_likelihood_scores"),
-    )
+    # smiles_likelihood_results = all_decoy_smiles_likelihood_scoring(
+    #     combined_model, 
+    #     test_dataloader,
+    #     df = pd.read_csv(test_df_path),
+    #     output_dir=os.path.join(args.output_dir, "plixer_likelihood_scores/seq_sim_test_split"),
+    # )
     results = evaluate_combined_model(
         combined_model, 
         test_dataloader,

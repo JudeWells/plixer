@@ -262,10 +262,80 @@ class VoxToSmilesModel(LightningModule):
             checkpoint["optimizer_states"] = []
             checkpoint["lr_schedulers"] = []
     
-    def generate_smiles(self, pixel_values, max_length=200):
-        tokens = self.model.generate(pixel_values, max_length=max_length)
-        predicted_smiles = self.tokenizer.batch_decode(tokens, skip_special_tokens=True)
-        return [sm.replace(' ', '') for sm in predicted_smiles]
+
+    def is_valid_smiles(self, smiles):
+        try:
+            mol = Chem.MolFromSmiles(smiles)
+            if mol is not None:
+                return True
+            else:
+                return False
+        except:
+            return False
+    
+    def repetition_score(self, smiles):
+        max_reps = 0
+        current_reps = 0
+        for sm in smiles:
+            sm = sm.replace(' ', '')
+            for i in range(len(sm)):
+                for j in range(i+1, len(sm)):
+                    if sm[i] == sm[j]:
+                        current_reps += 1
+                        max_reps = max(max_reps, current_reps)
+                    else:
+                        current_reps = 0
+        return max_reps
+
+    def generate_smiles(self, pixel_values, max_length=200, max_retries=5, max_token_repeats=10, do_sample=False):
+        batch_size = pixel_values.shape[0]
+        results = [None] * batch_size
+        best_results = [None] * batch_size
+        min_repetition_scores = [float('inf')] * batch_size
+        need_generation = [True] * batch_size
+        attempts = [0] * batch_size
+        
+        while any(need_generation) and max(attempts) < max_retries:
+            indices_to_generate = [i for i, need_gen in enumerate(need_generation) if need_gen]
+            if len(indices_to_generate) < batch_size:
+                current_pixel_values = pixel_values[indices_to_generate]
+            else:
+                current_pixel_values = pixel_values
+            
+            current_do_sample = do_sample or max(attempts) > 0  # Use sampling after first attempt
+            tokens = self.model.generate(current_pixel_values, max_length=max_length, do_sample=current_do_sample)
+            predicted_smiles = self.tokenizer.batch_decode(tokens, skip_special_tokens=True)
+            predicted_smiles = [sm.replace(' ', '') for sm in predicted_smiles]
+            
+            for idx, gen_idx in enumerate(indices_to_generate):
+                attempts[gen_idx] += 1
+                current_smiles = predicted_smiles[idx]
+                
+                # Track this attempt if it's a valid SMILES string
+                if self.is_valid_smiles(current_smiles):
+                    # Check repetition score
+                    rep_score = self.repetition_score([current_smiles])
+                    
+                    # Update best result if this has a lower repetition score
+                    if rep_score < min_repetition_scores[gen_idx]:
+                        best_results[gen_idx] = current_smiles
+                        min_repetition_scores[gen_idx] = rep_score
+                    
+                    # If under threshold, consider this a success
+                    if rep_score <= max_token_repeats:
+                        results[gen_idx] = current_smiles
+                        need_generation[gen_idx] = False
+                    else:
+                        bp=1
+                else:
+                    if best_results[gen_idx] is None:
+                        best_results[gen_idx] = current_smiles
+    
+        for i in range(batch_size):
+            if results[i] is None:
+                results[i] = best_results[i]
+        
+        return results
 
     def visualize_smiles(self, batch, sample_str=""):
         actual_smiles = batch["smiles_str"]
