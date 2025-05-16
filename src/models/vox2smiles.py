@@ -287,7 +287,7 @@ class VoxToSmilesModel(LightningModule):
                         current_reps = 0
         return max_reps
 
-    def generate_smiles(self, pixel_values, max_length=200, max_retries=5, max_token_repeats=10, do_sample=False):
+    def generate_smiles(self, pixel_values, max_length=200, max_retries=6, max_token_repeats=10, do_sample=False):
         batch_size = pixel_values.shape[0]
         results = [None] * batch_size
         best_results = [None] * batch_size

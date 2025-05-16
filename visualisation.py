@@ -94,10 +94,8 @@ def generate_plots_from_results_df(df, output_dir, vis_deciles: bool = True, sim
         "decoy_loss",
         "tanimoto_similarity",
         "decoy_tanimoto_similarity",
-        "mcs_num_atoms",
-        "decoy_mcs_num_atoms",
-        "prop_common_structure",
-        "decoy_prop_common_structure",
+        "smiles_teacher_forced_accuracy",
+        "decoy_smiles_teacher_forced_accuracy",
     ]
     bar_vals, bar_errors = [], []
     for m in bar_metrics:

@@ -178,9 +178,10 @@ def evaluate_combined_model(
         test_dataloader: DataLoader,
         output_dir="evaluation_results",
         save_voxels: bool = False,
-        skip_visualisation: bool = False
+        skip_visualisation: bool = False,
+        test_subset_prefix: str = ""
         ):
-    df_savepath = os.path.join(output_dir, f"combined_model_results_{datetime.datetime.now().strftime('%Y%m%d_%H%M%S')}.csv")
+    df_savepath = os.path.join(output_dir, f"{test_subset_prefix}combined_model_results_{datetime.datetime.now().strftime('%Y%m%d_%H%M%S')}.csv")
     os.makedirs(output_dir, exist_ok=True)
     # Get tokenizer configuration from the model config
     config = combined_model.config
@@ -285,7 +286,7 @@ def evaluate_combined_model(
                 'log_likelihood': -result['loss'].item(),
                 'decoy_log_likelihood': -result['decoy_loss'].item() if 'decoy_loss' in result else None,
                 'name': batch['name'][0],
-                'smiles': batch['smiles'][0],
+                'smiles': batch['smiles'][0].replace("[BOS]", "").replace("[EOS]", ""),
                 'valid_smiles': valid_smiles,
                 'tanimoto_similarity': tanimoto_similarity,
                 'decoy_tanimoto_similarity': decoy_tanimoto_similarity,
@@ -503,74 +504,83 @@ def compute_enrichment_factor(results_df, threshold=0.3):
 
 def main():
     args = parse_args()
-    similarity_df = pd.read_csv("../hiqbind/similarity_analysis/test_similarities.csv")
-    test_df_path = f'{args.output_dir}/seq_sim_test_split_results.csv'
-    if os.path.exists(f'{args.output_dir}/combined_model_results_all_decoy_likelihoods.csv'):
-        results_df = pd.read_csv(f'{args.output_dir}/combined_model_results_all_decoy_likelihoods.csv')
-        sequence_split_system_ids = similarity_df[
-            (similarity_df.max_protein_similarity < 0.3)
-            |(similarity_df.max_protein_similarity.isna())
-            ].system_id.values
-        plinder_test_split = get_plinder_test_split(similarity_df, results_df).copy()
-        results_df_sequence = results_df[results_df['name'].isin(sequence_split_system_ids)].copy()
-        print("\nFull test set:")
-        compute_enrichment_factor(results_df, threshold=0.3)
-        metrics = summarize_results(results_df, output_dir=args.output_dir)
-        print("\nsequence split:")
-        compute_enrichment_factor(results_df_sequence, threshold=0.3)
-        metrics = summarize_results(results_df_sequence, output_dir=os.path.join(args.output_dir, "sequence"))
-        print("\nPlinder test split:")
-        compute_enrichment_factor(plinder_test_split, threshold=0.3)
-        metrics = summarize_results(plinder_test_split, output_dir=os.path.join(args.output_dir, "plinder"))
-        generate_plots_from_results_df(results_df, args.output_dir, vis_deciles=False, similarity_df=similarity_df)
-        generate_plots_from_results_df(results_df_sequence, os.path.join(args.output_dir, "sequence"), vis_deciles=False, similarity_df=similarity_df)
-        generate_plots_from_results_df(plinder_test_split, os.path.join(args.output_dir, "plinder"), vis_deciles=False, similarity_df=similarity_df)
-        return
+    test_df_paths = [
+        ('chrono_', f'{args.output_dir}/combined_model_results_backup.csv'),
+        ('plinder_', f'{args.output_dir}/plinder_test_split_results.csv'),
+        ('seq_sim_', f'{args.output_dir}/seq_sim_test_split_results.csv'),
+        
+    ]
+    for split_name, test_df_path in test_df_paths:
+        output_dir = os.path.join(args.output_dir, split_name.replace("_", ""))
+        os.makedirs(output_dir, exist_ok=True)
+        if os.path.exists(f'{args.output_dir}/combined_model_results_all_decoy_likelihoods.csv'):
+            similarity_df = pd.read_csv("../hiqbind/similarity_analysis/test_similarities.csv")
+            results_df = pd.read_csv(f'{args.output_dir}/combined_model_results_all_decoy_likelihoods.csv')
+            sequence_split_system_ids = similarity_df[
+                (similarity_df.max_protein_similarity < 0.3)
+                |(similarity_df.max_protein_similarity.isna())
+                ].system_id.values
+            plinder_test_split = get_plinder_test_split(similarity_df, results_df).copy()
+            results_df_sequence = results_df[results_df['name'].isin(sequence_split_system_ids)].copy()
+            print("\nFull test set:")
+            compute_enrichment_factor(results_df, threshold=0.3)
+            metrics = summarize_results(results_df, output_dir=args.output_dir)
+            print("\nsequence split:")
+            compute_enrichment_factor(results_df_sequence, threshold=0.3)
+            metrics = summarize_results(results_df_sequence, output_dir=os.path.join(args.output_dir, "sequence"))
+            print("\nPlinder test split:")
+            compute_enrichment_factor(plinder_test_split, threshold=0.3)
+            metrics = summarize_results(plinder_test_split, output_dir=os.path.join(args.output_dir, "plinder"))
+            generate_plots_from_results_df(results_df, args.output_dir, vis_deciles=False, similarity_df=similarity_df)
+            generate_plots_from_results_df(results_df_sequence, os.path.join(args.output_dir, "sequence"), vis_deciles=False, similarity_df=similarity_df)
+            generate_plots_from_results_df(plinder_test_split, os.path.join(args.output_dir, "plinder"), vis_deciles=False, similarity_df=similarity_df)
+            return
 
-    config = get_config_from_cpt_path(args.ckpt_path)
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    combined_model = build_combined_model_from_config(
-        config, 
-        args.ckpt_path,
-        eval(args.dtype),
-        device
-    )
-    combined_model.eval()
-    complex_dataset_config = config['data']['train_dataset']['poc2mol_output_dataset']['complex_dataset']['config']
-    if 'plinder' in args.pdb_dir or 'hiqbind' in args.pdb_dir:
-        test_dataloader = build_parquet_test_dataloader(
-            complex_dataset_config, 
-            args.dtype,
-            args.pdb_dir,
-            system_ids=list(pd.read_csv(test_df_path)['name'].values)
+        config = get_config_from_cpt_path(args.ckpt_path)
+        device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        combined_model = build_combined_model_from_config(
+            config, 
+            args.ckpt_path,
+            eval(args.dtype),
+            device
         )
-    else:
-        test_dataloader = build_pdb_test_dataloader(
-            complex_dataset_config, 
-            args.pdb_dir, 
-            args.dtype
-        )
-    # smiles_likelihood_results = all_decoy_smiles_likelihood_scoring(
-    #     combined_model, 
-    #     test_dataloader,
-    #     df = pd.read_csv(test_df_path),
-    #     output_dir=os.path.join(args.output_dir, "plixer_likelihood_scores/seq_sim_test_split"),
-    # )
-    results = evaluate_combined_model(
-        combined_model, 
-        test_dataloader,
-        output_dir=args.output_dir,
-        save_voxels=True,
-        skip_visualisation=args.skip_visualisation
-        )
-    results_df = pd.DataFrame(results)
-    for c in results_df.columns:
-        try:
-            print(c, round(results_df[c].mean(), 3))
-        except:
-            pass
-    metrics = summarize_results(results_df, output_dir=args.output_dir)
-    generate_plots_from_results_df(results_df, args.output_dir)
+        combined_model.eval()
+        complex_dataset_config = config['data']['train_dataset']['poc2mol_output_dataset']['complex_dataset']['config']
+        if 'plinder' in args.pdb_dir or 'hiqbind' in args.pdb_dir:
+            test_dataloader = build_parquet_test_dataloader(
+                complex_dataset_config, 
+                args.dtype,
+                args.pdb_dir,
+                system_ids=list(pd.read_csv(test_df_path)['name'].values)
+            )
+        else:
+            test_dataloader = build_pdb_test_dataloader(
+                complex_dataset_config, 
+                args.pdb_dir, 
+                args.dtype,
+            )
+        # smiles_likelihood_results = all_decoy_smiles_likelihood_scoring(
+        #     combined_model, 
+        #     test_dataloader,
+        #     df = pd.read_csv(test_df_path),
+        #     output_dir=os.path.join(output_dir, "plixer_likelihood_scores"),
+        # )
+        results = evaluate_combined_model(
+            combined_model, 
+            test_dataloader,
+            output_dir=output_dir,
+            save_voxels=True,
+            skip_visualisation=args.skip_visualisation,
+            test_subset_prefix=split_name,
+            )
+        results_df = pd.DataFrame(results)
+        for c in results_df.columns:
+            try:
+                print(c, round(results_df[c].mean(), 3))
+            except:
+                pass
+        metrics = summarize_results(results_df, output_dir=output_dir)
+        generate_plots_from_results_df(results_df, output_dir)
 
 if __name__ == "__main__":
     main()
