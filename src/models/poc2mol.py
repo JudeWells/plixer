@@ -97,49 +97,92 @@ class Poc2Mol(LightningModule):
 
 
     def forward(self, prot_vox, labels=None):
+        """Run the UNet and (optionally) compute loss.
+
+        Parameters
+        ----------
+        prot_vox : torch.Tensor
+            Protein voxel tensor of shape ``[B, C, X, Y, Z]``.
+        labels : torch.Tensor | None, optional
+            Ground-truth ligand voxels.  If supplied, the method will also
+            compute the configured loss criterion.
+
+        Returns
+        -------
+        Union[torch.Tensor, Dict[str, torch.Tensor]]
+            * If ``labels`` is *None* the raw network prediction tensor is
+              returned.
+            * Otherwise a dictionary is returned that contains
+                - ``pred_vox`` : the raw network prediction tensor
+                - one entry per individual loss component (e.g. ``bce`` and
+                  ``dice``)
+                - ``loss``      : the scalar total loss (sum of the individual
+                  components)
+        """
         pred_vox = self.model(x=prot_vox)
-        if labels is not None:
-            outputs = self.loss(pred_vox, labels)
-            outputs['pred_vox'] = pred_vox
+        if labels is None:
+            return pred_vox
+
+        # Compute the per-component losses
+        loss_dict = self.loss(pred_vox, labels)
+        # Aggregate to a single scalar so that Lightning knows what to optimise
+        total_loss = None
+        if isinstance(loss_dict, dict):
+            total_loss = sum(loss_dict.values())
         else:
-            outputs = pred_vox
-        return outputs
+            # Some criteria might already return a scalar tensor
+            total_loss = loss_dict
+            loss_dict = {"loss": total_loss}
+        # Compose the output dictionary
+        loss_dict["loss"] = total_loss
+        loss_dict["pred_vox"] = pred_vox
+        return loss_dict
 
     def training_step(self, batch, batch_idx):
         if "load_time" in batch:
             self.log("train/load_time", batch["load_time"].mean(), on_step=True, on_epoch=False, prog_bar=True)
+
         outputs = self(batch["protein"], labels=batch["ligand"])
-        loss = self.loss(outputs, batch["ligand"])
-        if isinstance(loss, dict):
-            running_loss = 0
-            for k,v in loss.items():
-                self.log(f"train/{k}", v, on_step=False, on_epoch=True, prog_bar=False)
-                self.log(f"train/batch_{k}", v, on_step=True, on_epoch=False, prog_bar=False)
-                running_loss += v
-            loss = running_loss
-        self.log("train/loss", loss, on_step=False, on_epoch=True, prog_bar=True)
-        self.log("train/batch_loss", loss, on_step=True, on_epoch=False, prog_bar=True)
-        self.log_channel_means(batch, outputs),
+        # ``outputs`` is a dictionary – extract what we need
+        pred_vox = outputs["pred_vox"]
+        loss = outputs["loss"]
+
+        # Log each individual loss component (except the prediction tensor)
+        for k, v in outputs.items():
+            if k in {"pred_vox"}:
+                continue
+            # Per-batch logging
+            self.log(f"train/batch_{k}", v, on_step=True, on_epoch=False, prog_bar=(k=="loss"))
+            # Per-epoch logging
+            self.log(f"train/{k}", v, on_step=False, on_epoch=True, prog_bar=(k=="loss"))
+
+        # Channel statistics
+        self.log_channel_means(batch, pred_vox)
+
+        # Visualisation
         if batch_idx == 0:
-            # apply sigmoid to outputs for visualisation
-            outputs_for_viz = torch.sigmoid(outputs.detach())
+            outputs_for_viz = torch.sigmoid(pred_vox.detach())
             visualise_batch(batch["ligand"], outputs_for_viz, batch["name"], save_dir=self.img_save_dir, batch=str(batch_idx))
+
         return loss
 
     def validation_step(self, batch, batch_idx):
         outputs = self(batch["protein"], labels=batch["ligand"])
-        loss = self.loss(outputs, batch["ligand"])
-        if isinstance(loss, dict):
-            running_loss = 0
-            for k,v in loss.items():
-                self.log(f"val/{k}", v, on_step=False, on_epoch=True, prog_bar=False)
-                running_loss += v
-            loss = running_loss
-        save_dir = f"{self.img_save_dir}/val"
-        if self.visualise_val and batch_idx in [0, 50, 100]:
-            outputs_for_viz = torch.sigmoid(outputs.detach())
-            lig, pred, names = batch["ligand"][:4], outputs_for_viz[:4], batch["name"][:4]
+        pred_vox = outputs["pred_vox"]
+        loss = outputs["loss"]
 
+        # Log each component
+        for k, v in outputs.items():
+            if k in {"pred_vox"}:
+                continue
+            self.log(f"val/{k}", v, on_step=False, on_epoch=True, prog_bar=(k=="loss"))
+
+        # Optional visualisation
+        if self.visualise_val and batch_idx in [0, 50, 100]:
+            save_dir = f"{self.img_save_dir}/val" if self.img_save_dir else None
+            outputs_for_viz = torch.sigmoid(pred_vox.detach())
+            lig, pred, names = batch["ligand"][:4], outputs_for_viz[:4], batch["name"][:4]
+        
             visualise_batch(
                 lig,
                 pred,
@@ -148,12 +191,12 @@ class Poc2Mol(LightningModule):
                 batch=str(batch_idx)
             )
 
-        self.log("val/loss", loss, on_step=False, on_epoch=True, prog_bar=True)
+        
         return loss
 
     def test_step(self, batch, batch_idx):
         outputs = self(batch["protein"], labels=batch["ligand"])
-        pass
+        return outputs["loss"]
 
     def configure_optimizers(self) -> Dict[str, Any]:
 
@@ -249,15 +292,19 @@ class Poc2Mol(LightningModule):
             checkpoint["optimizer_states"] = []
             checkpoint["lr_schedulers"] = []
     
-    def log_channel_means(self, batch, outputs):
+    def log_channel_means(self, batch, pred_vox):
+        """Log mean values for each channel of protein, true ligand and prediction."""
         n_lig_channels = batch['ligand'].shape[1]
         self.log_dict({
-            f"channel_mean/ligand_{channel}": batch['ligand'][:,channel,...].mean().detach().item() for channel in range(n_lig_channels)
-            })
+            f"channel_mean/ligand_{channel}": batch['ligand'][:, channel, ...].mean().detach().item()
+            for channel in range(n_lig_channels)
+        })
         self.log_dict({
-            f"channel_mean/pred_ligand_{channel}": outputs[:,channel,...].mean().detach().item() for channel in range(n_lig_channels)
+            f"channel_mean/pred_ligand_{channel}": pred_vox[:, channel, ...].mean().detach().item()
+            for channel in range(n_lig_channels)
         })
         n_prot_channels = batch['protein'].shape[1]
         self.log_dict({
-            f"channel_mean/protein_{channel}": batch['protein'][:,channel,...].mean().detach().item() for channel in range(n_prot_channels)
+            f"channel_mean/protein_{channel}": batch['protein'][:, channel, ...].mean().detach().item()
+            for channel in range(n_prot_channels)
         })

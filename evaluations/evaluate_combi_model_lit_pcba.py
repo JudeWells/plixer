@@ -14,6 +14,7 @@ from scripts.create_hiqbind_dataset import (
 )
 
 """
+Work in progress file for evaluating on lit PCBA
 This dataset contains 16 targets
 each target has multiple protein files
 and corresponding bound ligand files

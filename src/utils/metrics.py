@@ -209,7 +209,7 @@ def accuracy_from_outputs(
     # Ensure tensors are on the same device
     shift_labels = shift_labels.to(shift_logits.device)
     non_padding_mask = shift_labels != ignore_index
-    # TODO: we might also want to ignore gaps...
+    
     accuracy = (shift_logits.argmax(-1) == shift_labels).float()
     if dataset_names is not None:
         ds_accuracies = {}

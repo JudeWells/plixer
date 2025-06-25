@@ -7,7 +7,7 @@
 #$ -l gpu=true
 #$ -R y
 #$ -l gpu_type=(a40|a100|a100_80)
-#$ -l h_rt=91:55:30
+#$ -l h_rt=119:55:30
 #$ -S /bin/bash
 #$ -N poc2molHiq
 #$ -t 1

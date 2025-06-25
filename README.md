@@ -21,10 +21,11 @@
 
 
 
-This repository contains two models:
+This repository contains three models:
 
 1. **Poc2Mol**: Generates voxelized ligands from protein voxel inputs
 2. **Vox2Smiles**: Decodes voxelized ligands into SMILES strings
+3. **CombinedProtein2Smiles** combines 1 & 2 for end-to-end pipeline
 
 ## Project Structure
 
@@ -67,20 +68,20 @@ DTYPE = torch.bfloat16
 
 ### Training poc2mol
 ```bash
-python src/train.py +experiment=example_train_poc2mol_plinder
+python src/train.py experiment=example_train_poc2mol_plinder
 ```
 
 ### Training vox2smiles on zinc molecules
 
 ```bash
-python src/train.py +experiment=example_train_vox2smiles_zinc
+python src/train.py experiment=example_train_vox2smiles_zinc
 
 ```
 
 ### Fine-tuning Vox2Smiles on Poc2Mol Outputs AND zinc
 
 ```bash
-python src/train.py +experiment=train_vox2smiles_combined
+python src/train.py experiment=train_vox2smiles_combined
 ```
 
 ### Generating SMILES Strings from Ligand Voxels
@@ -102,7 +103,7 @@ The Vox2Smiles model is a Vision Transformer (ViT) that takes ligand voxels as i
 
 ### Combined Model
 
-The combined Poc2Smiles model connects the Poc2Mol and Vox2Smiles models in an end-to-end fashion. It takes protein voxels as input, generates ligand voxels using Poc2Mol, and then generates SMILES strings using Vox2Smiles.
+The combined CombinedProtein2Smiles model connects the Poc2Mol and Vox2Smiles models in an end-to-end fashion. It takes protein voxels as input, generates ligand voxels using Poc2Mol, and then generates SMILES strings using Vox2Smiles.
 
 ## License
 
