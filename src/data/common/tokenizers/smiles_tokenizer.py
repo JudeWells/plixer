@@ -11,7 +11,7 @@ def build_smiles_tokenizer():
     tokenizer_path = os.path.join(current_dir, "SMILES_PreTrainedTokenizerFast.json")
     multichar_tokens = [
         "Cl", "Br", "At", "Si", "Se", "Te", "As", "Mg", "Br",
-        "Mg", "Zn", "Na", "Ca", "Al", "%10", "%11", "%12", "%13", "%14",
+        "Zn", "Na", "Ca", "Al", "%10", "%11", "%12", "%13", "%14",
         "%15", "%16", "%17", "%18", "%19", "%20", "%21", "@@",
         "%22", "%23", "%24", r"\\", "\\"
     ]

@@ -80,7 +80,7 @@ def parse_args():
     parser.add_argument(
         "--dtype", 
         type=str, 
-        default="torch.bfloat16",
+        default="torch.float32",
         help="Evaluation dtype"
     )
     parser.add_argument(
@@ -528,12 +528,12 @@ def main():
                 args.pdb_dir, 
                 args.dtype,
             )
-        # smiles_likelihood_results = all_decoy_smiles_likelihood_scoring(
-        #     combined_model, 
-        #     test_dataloader,
-        #     df = pd.read_csv(test_df_path),
-        #     output_dir=os.path.join(output_dir, "plixer_likelihood_scores"),
-        # )
+        smiles_likelihood_results = all_decoy_smiles_likelihood_scoring(
+            combined_model, 
+            test_dataloader,
+            df = pd.read_csv(test_df_path),
+            output_dir=os.path.join(output_dir, "plixer_likelihood_scores"),
+        )
         results = evaluate_combined_model(
             combined_model, 
             test_dataloader,
