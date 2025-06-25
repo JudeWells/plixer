@@ -106,7 +106,7 @@ def build_parquet_test_dataloader(poc2mol_config: DictConfig, dtype: str, pdb_di
         data_path=pdb_dir,
         use_cluster_member_zero=True
     )
-    return DataLoader(dataset, batch_size=1, shuffle=True)
+    return DataLoader(dataset, batch_size=1, shuffle=False)
 
 
 def build_pdb_test_dataloader(
@@ -263,26 +263,6 @@ def evaluate_combined_model(
         tanimoto_similarity = get_tanimoto_similarity_from_smiles(true_smiles, sampled_smiles)
         decoy_tanimoto_similarity = get_tanimoto_similarity_from_smiles(decoy_smiles, sampled_smiles)
         true_vs_decoy_tanimoto_similarity = get_tanimoto_similarity_from_smiles(true_smiles, decoy_smiles)
-    
-        # mcs_num_atoms = get_max_common_substructure_num_atoms(true_smiles, sampled_smiles)
-        # decoy_mcs_num_atoms = get_max_common_substructure_num_atoms(decoy_smiles, sampled_smiles)
-        # true_vs_decoy_mcs_num_atoms = get_max_common_substructure_num_atoms(true_smiles, decoy_smiles)
-        # try:
-        #     true_num_heavy_atoms = Chem.MolFromSmiles(true_smiles).GetNumHeavyAtoms()
-        # except:
-        #     true_num_heavy_atoms = None
-            
-        # # Calculate prop_common_structure for both sampled and decoy
-        # if sampled_smiles is not None and true_num_heavy_atoms is not None:
-        #     try:
-        #         prop_common_structure = mcs_num_atoms / true_num_heavy_atoms if mcs_num_atoms is not None else None
-        #         decoy_prop_common_structure = decoy_mcs_num_atoms / true_num_heavy_atoms if decoy_mcs_num_atoms is not None else None
-        #     except:
-        #         prop_common_structure = None
-        #         decoy_prop_common_structure = None
-        # else:
-        #     prop_common_structure = None
-        #     decoy_prop_common_structure = None
 
         decoy_smiles = true_smiles # use last batch smiles as decoy smiles
         
@@ -299,12 +279,6 @@ def evaluate_combined_model(
                 'tanimoto_similarity': tanimoto_similarity,
                 'decoy_tanimoto_similarity': decoy_tanimoto_similarity,
                 'true_vs_decoy_tanimoto_similarity': true_vs_decoy_tanimoto_similarity,
-                # 'mcs_num_atoms': mcs_num_atoms,
-                # 'decoy_mcs_num_atoms': decoy_mcs_num_atoms,
-                # 'true_vs_decoy_mcs_num_atoms': true_vs_decoy_mcs_num_atoms,
-                # 'prop_common_structure': prop_common_structure,
-                # 'decoy_prop_common_structure': decoy_prop_common_structure,
-                # 'true_num_heavy_atoms': true_num_heavy_atoms,
                 'poc2mol_bce': result['poc2mol_bce'],
                 'poc2mol_dice': result['poc2mol_dice'],
                 'poc2mol_loss': result['poc2mol_loss'],

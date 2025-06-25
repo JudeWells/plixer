@@ -11,3 +11,4 @@ evaluation_results/
 nohup.out
 label_images/
 data/agonists/
+checkpoints/

@@ -72,8 +72,8 @@ class Poc2MolDataConfig(VoxelizationConfig):
     has_protein: bool = True
     # Indices of channels to use for ligand and protein
     # These are indices into the voxelized output, not the channel mappings above
-    ligand_channel_indices: List[int] = field(default_factory=lambda: [5, 6, 7, 8, 9, 10, 11, 12, 13, 14])
-    protein_channel_indices: List[int] = field(default_factory=lambda: [0, 1, 2, 3, 4, 5])
+    ligand_channel_indices: List[int] = field(default_factory=lambda: [4, 5, 6, 7, 8, 9, 10, 11, 12])
+    protein_channel_indices: List[int] = field(default_factory=lambda: [0, 1, 2, 3])
     
     fnames: Optional[List[str]] = None
     system_ids: Optional[List[str]] = None

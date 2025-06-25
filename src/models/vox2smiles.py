@@ -325,8 +325,8 @@ class VoxToSmilesModel(LightningModule):
                     if rep_score <= max_token_repeats:
                         results[gen_idx] = current_smiles
                         need_generation[gen_idx] = False
-                    else:
-                        bp=1
+                    
+
                 else:
                     if best_results[gen_idx] is None:
                         best_results[gen_idx] = current_smiles
