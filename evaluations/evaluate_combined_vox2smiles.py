@@ -8,7 +8,6 @@ import datetime
 import json
 import yaml
 import argparse
-import hydra
 from omegaconf import DictConfig, OmegaConf
 from pathlib import Path
 from torch.utils.data import DataLoader
@@ -36,6 +35,13 @@ which has been trained on the HiQBind dataset
 then we combine this with a vox2smiles model which has
 been trained on the Zinc dataset and the outputs of the 
 poc2mol dataset.
+
+For eah model we want to evaluate the following metrics:
+- 1:1 hit to decoy enrichment factor (similarity)
+- 1 to all hit to decoy similarity enrichment factor
+- SMILES ROC AUC score based on likelihoods
+- validity 
+- proportion of generated molecules are unique
 """
 
 def compute_auc_roc(df):
@@ -134,6 +140,14 @@ def add_smiles_to_batch(batch: dict, tokenizer: PreTrainedTokenizerFast, max_smi
     batch.update(tokenized)
     return batch
 
+def get_tanimoto_similarity_from_mol(mol1, mol2):
+    if mol1 is None or mol2 is None:
+        return None
+    morgan_fp1 = AllChem.GetMorganFingerprint(mol1, 2)
+    morgan_fp2 = AllChem.GetMorganFingerprint(mol2, 2)
+    tanimoto_similarity = DataStructs.TanimotoSimilarity(morgan_fp1, morgan_fp2)
+    return tanimoto_similarity
+
 def get_tanimoto_similarity_from_smiles(smiles1, smiles2):
     try:
         mol1 = Chem.MolFromSmiles(smiles1)
@@ -141,13 +155,7 @@ def get_tanimoto_similarity_from_smiles(smiles1, smiles2):
         # Return None if molecule creation fails
         if mol1 is None or mol2 is None:
             return None
-
-        # Generate Morgan fingerprints with radius 2
-        morgan_fp1 = AllChem.GetMorganFingerprint(mol1, 2)
-        morgan_fp2 = AllChem.GetMorganFingerprint(mol2, 2)
-        
-        # Compute Tanimoto similarity between the fingerprints
-        tanimoto_similarity = DataStructs.TanimotoSimilarity(morgan_fp1, morgan_fp2)
+        tanimoto_similarity = get_tanimoto_similarity_from_mol(mol1, mol2)
         return tanimoto_similarity
     except Exception as e:
         return None
@@ -320,7 +328,6 @@ def summarize_results(results_df, output_dir=None):
     decoy_tanimoto_similarity = results_df.decoy_tanimoto_similarity.mean(),
     n_mols_gt_0p3_tanimoto = len(results_df[results_df.tanimoto_similarity >= 0.3]),
     tanimoto_enrichment = calculate_enrichment_factor(results_df, target_col="tanimoto_similarity", target_threshold=0.3),
-    likelihood_enrichment = calculate_likelihood_enrichment_factor(results_df, target_col="log_likelihood", top_k=100),
     diversity = len(results_df.sampled_smiles.unique()) / len(results_df),
     n_sampled_mols = len(results_df)
     )
@@ -431,21 +438,7 @@ def calculate_enrichment_factor(df, target_col="tanimoto_similarity", target_thr
     )
     return enrichment
 
-def calculate_likelihood_enrichment_factor(df, target_col="log_likelihood", top_k=100):
-    df_hit_likelihoods = df[[target_col]]
-    df_hit_likelihoods["is_hit"] = 1
-    df_decoy_likelihoods = pd.DataFrame({
-        target_col: df[ "decoy_" + target_col].values,
-        "is_hit": [0] * len(df)
-    })
-    df_combined = pd.concat([df_hit_likelihoods, df_decoy_likelihoods]).sort_values(target_col, ascending=False)
-    hitrate_top_k = df_combined.iloc[:top_k].is_hit.sum() / top_k
-    hitrate_baseline = df_combined.is_hit.sum() / len(df_combined)
-    enrichment = hitrate_top_k/hitrate_baseline
-    print(
-        f"Enrichment factor for {target_col} at top-{top_k}: {round(enrichment, 3)}, hitrate top-k={hitrate_top_k}, hitrate baseline={hitrate_baseline}"
-    )
-    return enrichment
+
 
 def get_plinder_test_split(similarity_df, results_df):
     train_dataset = pd.read_csv("../hiqbind/plixer_train_data.csv")
@@ -477,7 +470,9 @@ def get_plinder_test_split(similarity_df, results_df):
     plinder_test_df = pd.DataFrame(plinder_test_rows)
     return plinder_test_df
 
-def compute_enrichment_factor(results_df, threshold=0.3):
+def compute_all_decoy_similarity_enrichment_factor(results_df, threshold=0.3):
+    assert 'smiles' in results_df.columns
+    assert 'tanimoto_similarity' in results_df.columns
     for i, row in results_df.iterrows():
         try:
             morgan_fp = AllChem.GetMorganFingerprint(Chem.MolFromSmiles(row['smiles']), 2)
@@ -523,13 +518,13 @@ def main():
             plinder_test_split = get_plinder_test_split(similarity_df, results_df).copy()
             results_df_sequence = results_df[results_df['name'].isin(sequence_split_system_ids)].copy()
             print("\nFull test set:")
-            compute_enrichment_factor(results_df, threshold=0.3)
+            compute_all_decoy_similarity_enrichment_factor(results_df, threshold=0.3)
             metrics = summarize_results(results_df, output_dir=args.output_dir)
             print("\nsequence split:")
-            compute_enrichment_factor(results_df_sequence, threshold=0.3)
+            compute_all_decoy_similarity_enrichment_factor(results_df_sequence, threshold=0.3)
             metrics = summarize_results(results_df_sequence, output_dir=os.path.join(args.output_dir, "sequence"))
             print("\nPlinder test split:")
-            compute_enrichment_factor(plinder_test_split, threshold=0.3)
+            compute_all_decoy_similarity_enrichment_factor(plinder_test_split, threshold=0.3)
             metrics = summarize_results(plinder_test_split, output_dir=os.path.join(args.output_dir, "plinder"))
             generate_plots_from_results_df(results_df, args.output_dir, vis_deciles=False, similarity_df=similarity_df)
             generate_plots_from_results_df(results_df_sequence, os.path.join(args.output_dir, "sequence"), vis_deciles=False, similarity_df=similarity_df)

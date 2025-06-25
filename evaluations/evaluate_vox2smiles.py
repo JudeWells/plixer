@@ -301,7 +301,7 @@ def calculate_log_likelihood(model, voxel, smiles_strings, max_length=200):
     return results
 
 
-def visualize_molecules(smiles_list, mol_path, output_dir):
+def visualize_molecules(smiles_list, mol_path, output_dir, identifier="input_molecule"):
     """Visualize the generated molecules alongside the input molecule."""
     # Create output directory if it doesn't exist
     os.makedirs(output_dir, exist_ok=True)
@@ -309,7 +309,7 @@ def visualize_molecules(smiles_list, mol_path, output_dir):
     # Load and visualize input molecule
     input_mol = load_molecule(mol_path)
     input_img = Draw.MolToImage(input_mol, size=(300, 300))
-    input_img_path = os.path.join(output_dir, "input_molecule.png")
+    input_img_path = os.path.join(output_dir, f"{identifier}.png")
     input_img.save(input_img_path)
     
     # Visualize generated molecules
@@ -352,23 +352,34 @@ def visualize_voxel(voxel, output_dir, identifier='voxelized_molecule'):
     
     # Convert to numpy if it's a tensor
     if not isinstance(voxel, np.ndarray):
-        voxel = voxel.detach().cpu().numpy()
+        voxel = voxel.detach().cpu().float().numpy()
     
     # Threshold the voxel grid
     voxel = (voxel > 0.5).astype(int)
     
     # Define colors for each atom type
     colors = np.zeros((voxel.shape[0], 4))
-    colors[0] = mcolors.to_rgba('green')    # carbon
-    colors[1] = mcolors.to_rgba('white')    # hydrogen
-    colors[2] = mcolors.to_rgba('red')      # oxygen
-    colors[3] = mcolors.to_rgba('blue')     # nitrogen
-    colors[4] = mcolors.to_rgba('yellow')   # sulfur
-    colors[5] = mcolors.to_rgba('magenta')  # chlorine
-    colors[6] = mcolors.to_rgba('magenta')  # fluorine
-    colors[7] = mcolors.to_rgba('magenta')  # iodine
-    colors[8] = mcolors.to_rgba('magenta')  # bromine
-    colors[9] = mcolors.to_rgba('cyan')     # other
+    if voxel.shape[0] > 9:
+        colors[0] = mcolors.to_rgba('green')    # carbon
+        colors[1] = mcolors.to_rgba('white')    # hydrogen
+        colors[2] = mcolors.to_rgba('red')      # oxygen
+        colors[3] = mcolors.to_rgba('blue')     # nitrogen
+        colors[4] = mcolors.to_rgba('yellow')   # sulfur
+        colors[5] = mcolors.to_rgba('cyan')  # chlorine_ligand
+        colors[6] = mcolors.to_rgba('darkcyan')  # fluorine_ligand
+        colors[7] = mcolors.to_rgba('magenta')  # iodine_ligand
+        colors[8] = mcolors.to_rgba('brown')  # bromine_ligand
+        colors[9] = mcolors.to_rgba('purple')  # other_ligand
+    else:
+        colors[0] = mcolors.to_rgba('green')  # carbon_ligand
+        colors[1] = mcolors.to_rgba('red')  # oxygen_ligand
+        colors[2] = mcolors.to_rgba('blue')  # nitrogen_ligand
+        colors[3] = mcolors.to_rgba('yellow')  # sulfur_ligand
+        colors[4] = mcolors.to_rgba('cyan')  # chlorine_ligand
+        colors[5] = mcolors.to_rgba('darkcyan')  # fluorine_ligand
+        colors[6] = mcolors.to_rgba('magenta')  # iodine_ligand
+        colors[7] = mcolors.to_rgba('brown')  # bromine_ligand
+        colors[8] = mcolors.to_rgba('purple')  # other_ligand
     
     # Set transparency for all colors
     colors[:, 3] = 0.2
