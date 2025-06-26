@@ -61,6 +61,7 @@ class CombinedProteinToSmilesModel(L.LightningModule):
             sample_smiles=True,
             poc2mol_output=None,
             return_poc2mol_output=False,
+            temperature=1.0,
             ):
         """
         Forward pass through the combined model.
@@ -81,21 +82,13 @@ class CombinedProteinToSmilesModel(L.LightningModule):
         else:
             pred_vox = poc2mol_output
         pred_vox = torch.sigmoid(pred_vox)
-        
-        vox2smiles_output = self.vox2smiles_model(pred_vox, labels=labels)
-        if sample_smiles:
-            sampled_smiles = self.vox2smiles_model.generate_smiles(pred_vox)
-        else:
-            sampled_smiles = None
         result = {
-            "logits": vox2smiles_output["logits"],
             "predicted_ligand_voxels": pred_vox,
-            "sampled_smiles": sampled_smiles,
-            "loss": vox2smiles_output['loss'],
         }
-        if return_poc2mol_output:
-            result['poc2mol_output'] = poc2mol_output
         if labels is not None:
+            vox2smiles_output = self.vox2smiles_model(pred_vox, labels=labels)
+            result['logits'] = vox2smiles_output["logits"]
+            result['loss'] = vox2smiles_output['loss']
             result['poc2mol_bce'] = poc2mol_output['bce'].mean().item()
             result['poc2mol_dice'] = poc2mol_output['dice'].mean().item()
             result['poc2mol_loss'] = result['poc2mol_bce'] + result['poc2mol_dice']
@@ -106,6 +99,18 @@ class CombinedProteinToSmilesModel(L.LightningModule):
             result['decoy_smiles_true_label_teacher_forced_accuracy'] = accuracy_from_outputs(vox2smiles_output, decoy_labels, start_ix=1, ignore_index=0)
             vox2smiles_decoy_output = self.vox2smiles_model(pred_vox, labels=decoy_labels)
             result['decoy_smiles_decoy_label_teacher_forced_accuracy'] = accuracy_from_outputs(vox2smiles_decoy_output, decoy_labels, start_ix=1, ignore_index=0)
+        else:
+            result = {
+                "predicted_ligand_voxels": pred_vox,
+            }
+        if return_poc2mol_output:  # TODO: remove this don't use nested dictionary
+            result['poc2mol_output'] = poc2mol_output # maybe we did this because we need the pre-sigmoid voxels?
+    
+        if sample_smiles:
+            sampled_smiles = self.vox2smiles_model.generate_smiles(pred_vox, temperature=temperature)
+        else:
+            sampled_smiles = None
+        result['sampled_smiles'] = sampled_smiles
 
         return result
     
@@ -341,3 +346,58 @@ class CombinedProteinToSmilesModel(L.LightningModule):
             plt.tight_layout()
             plt.savefig(os.path.join(self.config["img_save_dir"], f"example_{epoch}_{i}.png"))
             plt.close(fig)
+
+    def generate_smiles_from_protein_voxels(self, protein_voxels, num_samples=1):
+        """
+        Generates SMILES strings from protein voxels.
+        """
+        poc2mol_output = self.poc2mol_model(protein_voxels)
+        if isinstance(poc2mol_output, dict):
+            pred_vox = poc2mol_output['pred_vox']
+        else:
+            pred_vox = poc2mol_output
+        pred_vox = torch.sigmoid(pred_vox)
+        
+        if num_samples > 1:
+            # Repeat tensor for multiple samples
+            pred_vox = pred_vox.repeat_interleave(num_samples, dim=0)
+
+        generated_smiles = self.vox2smiles_model.generate_smiles(pred_vox)
+        return generated_smiles
+
+    def score_smiles(self, protein_voxels, smiles_list, tokenizer, max_smiles_len):
+        """
+        Scores a list of SMILES strings against a protein structure.
+        Returns a list of log-likelihood scores.
+        """
+        # 1. Get predicted ligand voxels. This is done only once.
+        poc2mol_output = self.poc2mol_model(protein_voxels)
+        if isinstance(poc2mol_output, dict):
+            pred_vox = poc2mol_output['pred_vox']
+        else:
+            pred_vox = poc2mol_output
+        pred_vox = torch.sigmoid(pred_vox)
+
+        scores = []
+        for smiles in smiles_list:
+            # 2. Tokenize SMILES
+            if not smiles.startswith(tokenizer.bos_token):
+                smiles = tokenizer.bos_token + smiles
+            if not smiles.endswith(tokenizer.eos_token):
+                smiles = smiles + tokenizer.eos_token
+            
+            tokenized = tokenizer(
+                [smiles], # needs to be a list
+                padding='max_length',
+                max_length=max_smiles_len,
+                truncation=True,
+                return_tensors="pt"
+            )
+            labels = tokenized['input_ids'].to(self.device)
+
+            # 3. Get score (negative loss) from vox2smiles model
+            vox2smiles_output = self.vox2smiles_model(pred_vox, labels=labels)
+            loss = vox2smiles_output['loss']
+            scores.append(-loss.item())
+
+        return scores

@@ -91,7 +91,7 @@ class VoxToSmilesModel(LightningModule):
         if labels is not None:
             return self.model(pixel_values=pixel_values, labels=labels, return_dict=True)
         else:
-            return self.model(pixel_values=pixel_values, return_dict=False)
+            raise ValueError("Labels are required for Vox2Smiles forward method.")
 
     def training_step(self, batch, batch_idx):
         pixel_values = batch["pixel_values"]
@@ -287,7 +287,15 @@ class VoxToSmilesModel(LightningModule):
                         current_reps = 0
         return max_reps
 
-    def generate_smiles(self, pixel_values, max_length=200, max_retries=6, max_token_repeats=10, do_sample=False):
+    def generate_smiles(
+            self, 
+            pixel_values, 
+            max_length=200, 
+            max_retries=6, 
+            max_token_repeats=10, 
+            do_sample=False, 
+            temperature=1.0
+        ):
         batch_size = pixel_values.shape[0]
         results = [None] * batch_size
         best_results = [None] * batch_size
@@ -303,7 +311,7 @@ class VoxToSmilesModel(LightningModule):
                 current_pixel_values = pixel_values
             
             current_do_sample = do_sample or max(attempts) > 0  # Use sampling after first attempt
-            tokens = self.model.generate(current_pixel_values, max_length=max_length, do_sample=current_do_sample)
+            tokens = self.model.generate(current_pixel_values, max_length=max_length, do_sample=current_do_sample, temperature=temperature)
             predicted_smiles = self.tokenizer.batch_decode(tokens, skip_special_tokens=True)
             predicted_smiles = [sm.replace(' ', '') for sm in predicted_smiles]
             

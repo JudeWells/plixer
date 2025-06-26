@@ -16,7 +16,7 @@ import pytorch_lightning as pl
 from transformers import PreTrainedTokenizerFast
 from src.models.poc2mol import Poc2Mol
 from src.evaluation.visual import visualise_batch, show_3d_voxel_lig_only, visualize_2d_molecule_batch
-from src.utils.utils import get_config_from_cpt_path, build_combined_model_from_config
+from src.utils.utils import get_config_from_cpt_path
 from src.data.poc2mol.datasets import ComplexDataset, ParquetDataset
 from src.data.common.voxelization.config import Poc2MolDataConfig
 from src.models.poc2smiles import CombinedProteinToSmilesModel
@@ -43,6 +43,33 @@ For eah model we want to evaluate the following metrics:
 - validity 
 - proportion of generated molecules are unique
 """
+
+def build_combined_model_from_config(
+        config: DictConfig, 
+        vox2smiles_ckpt_path: str,
+        dtype: torch.dtype,
+        device: torch.device
+    ):
+    from src.models.poc2mol import Poc2Mol
+    from src.models.vox2smiles import VoxToSmilesModel
+    from src.models.poc2smiles import CombinedProteinToSmilesModel
+
+    poc2mol_output_dataset_config = config['data']['train_dataset']['poc2mol_output_dataset']
+    poc2mol_config = poc2mol_output_dataset_config['poc2mol_model']
+    poc2mol_model = Poc2Mol.load_from_checkpoint(poc2mol_output_dataset_config['ckpt_path'])
+
+    vox2smiles_model = VoxToSmilesModel.load_from_checkpoint(vox2smiles_ckpt_path)
+
+    combined_model = CombinedProteinToSmilesModel(
+        poc2mol_model=poc2mol_model,
+        vox2smiles_model=vox2smiles_model,
+        config=config
+    )
+
+    combined_model = combined_model.to(dtype)
+    combined_model.to(device)
+    return combined_model
+
 
 def compute_auc_roc(df):
     y_true = df['is_hit'].values
@@ -346,7 +373,7 @@ def all_decoy_smiles_likelihood_scoring(
                 labels=batch['input_ids'], 
                 ligand_voxels=batch['ligand'],
                 sample_smiles=False,
-                return_poc2mol_output=True,
+                return_poc2mol_output=True,  # TODO: remove this don't use nested dictionary
                 )
         likelihood = result['loss'].item()*-1
         poc2mol_output = result['poc2mol_output']
@@ -528,12 +555,12 @@ def main():
                 args.pdb_dir, 
                 args.dtype,
             )
-        smiles_likelihood_results = all_decoy_smiles_likelihood_scoring(
-            combined_model, 
-            test_dataloader,
-            df = pd.read_csv(test_df_path),
-            output_dir=os.path.join(output_dir, "plixer_likelihood_scores"),
-        )
+        # smiles_likelihood_results = all_decoy_smiles_likelihood_scoring(
+        #     combined_model, 
+        #     test_dataloader,
+        #     df = pd.read_csv(test_df_path),
+        #     output_dir=os.path.join(output_dir, "plixer_likelihood_scores"),
+        # )
         results = evaluate_combined_model(
             combined_model, 
             test_dataloader,

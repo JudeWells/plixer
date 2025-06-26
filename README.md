@@ -12,8 +12,25 @@
 ██           ███████     ██║    ██╔╝  ██╗     ███████     ██    ██ 
                                                          
 
-                                                         
+1.  **Clone the repository:**
+    ```bash
+    git clone <your-repo-url>
+    cd VoxelDiff2
+    ```
 
+2.  **Install dependencies:**
+    It is recommended to use a virtual environment.
+    ```bash
+    python -m venv venv
+    source venv/bin/activate
+    pip install -r requirements.txt
+    ```
+
+3.  **Download Model Checkpoints:**
+    The necessary model checkpoints are hosted on Hugging Face Hub. Run the following script to download them into the `checkpoints/` directory.
+    ```bash
+    python download_checkpoints.py
+    ```
 
 
 
@@ -58,7 +75,7 @@ cd VoxelDiff2
 pip install -r requirements.txt
 
 ```
-Modify this file in your dock2grid install to use float16:
+Modify this file in your dock2grid install if you want to use float16 (optional):
 `venv/lib/python3.11/site-packages/docktgrid/config.py`
 ```python
 DTYPE = torch.bfloat16
