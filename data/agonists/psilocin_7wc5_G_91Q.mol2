@@ -1,0 +1,61 @@
+# Name: 91Q
+# Created by ModelServer 0.9.12
+
+# model_server_result.job_id: 3daw0SjUvt7aAz7Tqt4Pbw
+# model_server_result.datetime_utc: 2025-06-10 10:54:38
+# model_server_result.server_version: 0.9.12
+# model_server_result.query_name: ligand
+# model_server_result.source_id: pdb-bcif
+# model_server_result.entry_id: 7wc5
+
+# model_server_params.name: atom_site
+# model_server_params.value: {"label_asym_id":"G","auth_seq_id":1206}
+
+# model_server_stats.io_time_ms: 10
+# model_server_stats.parse_time_ms: 12
+# model_server_stats.create_model_time_ms: 4
+# model_server_stats.query_time_ms: 319
+# model_server_stats.encode_time_ms: 0
+# model_server_stats.element_count: 15
+
+@<TRIPOS>MOLECULE
+91Q
+15 16 1
+****
+****
+
+@<TRIPOS>ATOM
+1 N1 -27.240 -11.722 141.764 N.3 1 91Q 0.000
+2 C4 -26.621 -12.531 144.042 C.3 1 91Q 0.000
+3 C5 -25.974 -13.656 144.783 C.ar 1 91Q 0.000
+4 C6 -24.669 -14.038 144.716 C.ar 1 91Q 0.000
+5 C7 -25.647 -15.487 146.111 C.ar 1 91Q 0.000
+6 C8 -26.634 -14.581 145.671 C.ar 1 91Q 0.000
+7 C10 -28.259 -15.768 147.017 C.ar 1 91Q 0.000
+8 C1 -27.339 -12.073 140.330 C.3 1 91Q 0.000
+9 C2 -28.471 -11.065 142.245 C.3 1 91Q 0.000
+10 C3 -26.958 -12.895 142.597 C.3 1 91Q 0.000
+11 N2 -24.465 -15.127 145.515 N.ar 1 91Q 0.000
+12 C9 -27.970 -14.738 146.141 C.ar 1 91Q 0.000
+13 C11 -27.243 -16.637 147.432 C.ar 1 91Q 0.000
+14 C12 -25.951 -16.524 146.991 C.ar 1 91Q 0.000
+15 O1 -28.976 -13.900 145.763 O.3 1 91Q 0.000
+@<TRIPOS>BOND
+1 1 8 1
+2 1 9 1
+3 1 10 1
+4 2 10 1
+5 2 3 1
+6 3 4 ar
+7 3 6 ar
+8 4 11 ar
+9 5 11 ar
+10 5 6 ar
+11 5 14 ar
+12 6 12 ar
+13 7 12 ar
+14 7 13 ar
+15 12 15 1
+16 13 14 ar
+@<TRIPOS>SUBSTRUCTURE
+1 91Q 1

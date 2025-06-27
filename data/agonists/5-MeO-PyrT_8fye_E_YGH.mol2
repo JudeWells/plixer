@@ -1,0 +1,70 @@
+# Name: YGH
+# Created by ModelServer 0.9.12
+
+# model_server_result.job_id: nnh1sLG99BTaXypJwll3Qg
+# model_server_result.datetime_utc: 2025-06-10 10:57:32
+# model_server_result.server_version: 0.9.12
+# model_server_result.query_name: ligand
+# model_server_result.source_id: pdb-bcif
+# model_server_result.entry_id: 8fye
+
+# model_server_params.name: atom_site
+# model_server_params.value: {"label_asym_id":"E","auth_seq_id":501}
+
+# model_server_stats.io_time_ms: 9
+# model_server_stats.parse_time_ms: 10
+# model_server_stats.create_model_time_ms: 12
+# model_server_stats.query_time_ms: 357
+# model_server_stats.encode_time_ms: 2
+# model_server_stats.element_count: 19
+
+@<TRIPOS>MOLECULE
+YGH
+19 21 1
+****
+****
+
+@<TRIPOS>ATOM
+1 C1 122.604 128.410 115.168 C.ar 1 YGH 0.000
+2 C2 122.992 129.406 114.224 C.ar 1 YGH 0.000
+3 C3 122.186 129.538 113.055 C.ar 1 YGH 0.000
+4 C10 124.182 130.039 114.763 C.ar 1 YGH 0.000
+5 C11 125.020 131.132 114.225 C.3 1 YGH 0.000
+6 C12 124.740 132.483 114.859 C.3 1 YGH 0.000
+7 C14 125.148 134.819 114.613 C.3 1 YGH 0.000
+8 C15 124.991 135.718 113.399 C.3 1 YGH 0.000
+9 C16 125.030 133.423 112.677 C.3 1 YGH 0.000
+10 C18 125.167 134.839 112.170 C.3 1 YGH 0.000
+11 C4 121.048 128.755 112.791 C.ar 1 YGH 0.000
+12 C5 120.716 127.789 113.768 C.ar 1 YGH 0.000
+13 C6 121.460 127.603 114.928 C.ar 1 YGH 0.000
+14 C8 119.701 127.777 111.037 C.3 1 YGH 0.000
+15 C9 124.477 129.447 115.970 C.ar 1 YGH 0.000
+16 F1 122.562 130.488 112.159 F 1 YGH 0.000
+17 N1 123.529 128.447 116.241 N.ar 1 YGH 0.000
+18 N13 125.529 133.494 114.073 N.3 1 YGH 0.000
+19 O7 120.292 128.925 111.629 O.3 1 YGH 0.000
+@<TRIPOS>BOND
+1 1 2 ar
+2 1 13 ar
+3 1 17 ar
+4 2 3 ar
+5 2 4 ar
+6 3 16 1
+7 3 11 ar
+8 4 5 1
+9 4 15 ar
+10 5 6 1
+11 6 18 1
+12 7 8 1
+13 7 18 1
+14 8 10 1
+15 9 10 1
+16 9 18 1
+17 11 19 1
+18 11 12 ar
+19 12 13 ar
+20 14 19 1
+21 15 17 ar
+@<TRIPOS>SUBSTRUCTURE
+1 YGH 1
