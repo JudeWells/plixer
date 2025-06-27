@@ -376,10 +376,9 @@ def all_decoy_smiles_likelihood_scoring(
                 labels=batch['input_ids'], 
                 ligand_voxels=batch['ligand'],
                 sample_smiles=False,
-                return_poc2mol_output=True,  # TODO: remove this don't use nested dictionary
                 )
         likelihood = result['loss'].item()*-1
-        poc2mol_output = result['poc2mol_output']
+        predicted_ligand_voxels = result['predicted_ligand_voxels']
         token_accuracy = result['smiles_teacher_forced_accuracy'].item()    
         likelihoods.append({
             'is_hit': 1,
@@ -396,8 +395,7 @@ def all_decoy_smiles_likelihood_scoring(
                 labels=batch['input_ids'], 
                 ligand_voxels=batch['ligand'],
                 sample_smiles=False,
-                predicted_ligand_voxel=poc2mol_output,
-                return_poc2mol_output=False,
+                predicted_ligand_voxels=predicted_ligand_voxels,
                 )
             decoy_likelihood = decoy_result['loss'].item()*-1
             decoy_token_accuracy = decoy_result['smiles_teacher_forced_accuracy'].item()
