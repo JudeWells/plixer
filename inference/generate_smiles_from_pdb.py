@@ -36,7 +36,7 @@ def parse_args():
     )
     parser.add_argument("--ligand_file", 
         type=str,
-        default=None, #"data/agonists/LSD_8fyt_E_7LD.mol2",
+        default="data/agonists/LSD_8fyt_E_7LD.mol2",
         help="Path to a ligand file (SDF/MOL2) only used to define the pocket center."
     )
     parser.add_argument(
