@@ -11,9 +11,15 @@ from src.data.common.tokenizers.smiles_tokenizer import build_smiles_tokenizer
 def main():
     parser = argparse.ArgumentParser(description="Rank SMILES against a protein PDB file.")
     parser.add_argument(
-        "--ckpt_path", 
+        "--vox2smiles_ckpt_path", 
         type=str, 
         default="checkpoints/combined_protein_to_smiles/epoch_000.ckpt", 
+        help="Path to model checkpoint"
+    )
+    parser.add_argument(
+        "--poc2mol_ckpt_path", 
+        type=str, 
+        default="checkpoints/poc_vox_to_mol_vox/epoch_173.ckpt",
         help="Path to model checkpoint"
     )
     parser.add_argument(
@@ -46,11 +52,14 @@ def main():
         args.dtype = eval(args.dtype)
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+
+    model, config = load_model(
+        vox2smiles_ckpt_path=args.vox2smiles_ckpt_path,
+        poc2mol_ckpt_path=args.poc2mol_ckpt_path,
+        device=device,
+        dtype=args.dtype
+    )
     
-    # Load model and config
-    model, config = load_model(args.ckpt_path, device, dtype=args.dtype)
-    
-    # Determine pocket center following the same priority logic as generate_smiles_from_pdb.py
     if args.center:
         if args.ligand_file:
             print("--ligand_file provided with --center, ignoring ligand file and using --center")
