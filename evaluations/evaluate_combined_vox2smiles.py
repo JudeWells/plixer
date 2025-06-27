@@ -149,7 +149,10 @@ def build_pdb_test_dataloader(
     )
     return DataLoader(dataset, batch_size=1, shuffle=False)
 
-def add_smiles_to_batch(batch: dict, tokenizer: PreTrainedTokenizerFast, max_smiles_len: int):
+def add_smiles_to_batch(batch: dict, tokenizer: PreTrainedTokenizerFast):
+    extra_tokens_per_smiles = 2
+    max_smiles = max([len(smi) for smi in batch['smiles']])
+    max_smiles += extra_tokens_per_smiles
     for i, smi in enumerate(batch['smiles']):
         if not smi.startswith(tokenizer.bos_token):
             batch['smiles'][i] = tokenizer.bos_token + tokenizer.bos_token + smi
@@ -158,7 +161,7 @@ def add_smiles_to_batch(batch: dict, tokenizer: PreTrainedTokenizerFast, max_smi
         tokenized = tokenizer(
             batch['smiles'],
             padding='max_length',
-            max_length=max_smiles_len,
+            max_length=max_smiles,
             truncation=True,
             return_tensors="pt"
         )
@@ -233,7 +236,7 @@ def evaluate_combined_model(
         if len(batch['smiles'][0]) > 100:
             continue
         if 'smiles' in batch:
-            batch = add_smiles_to_batch(batch, tokenizer, max_smiles_len)
+            batch = add_smiles_to_batch(batch, tokenizer)
         # Get the model output
         result = combined_model.forward(
             batch['protein'], 
@@ -364,9 +367,9 @@ def all_decoy_smiles_likelihood_scoring(
         likelihoods = []
         decoy_smiles_current_batch = [s for s in all_decoy_smiles if s not in batch['smiles']]
         assert len(decoy_smiles_current_batch) < len(all_decoy_smiles)
-        if len(batch['smiles'][0]) > 100:
+        if len(batch['smiles'][0]) > max_smiles_len:
             raise ValueError(f"Smiles length is too long: {len(batch['smiles'][0])}")
-        batch = add_smiles_to_batch(batch, tokenizer, max_smiles_len)
+        batch = add_smiles_to_batch(batch, tokenizer)
 
         result = combined_model.forward(
                 protein_voxels=batch['protein'], 
@@ -386,14 +389,14 @@ def all_decoy_smiles_likelihood_scoring(
         })
         for j, decoy_smiles in enumerate(decoy_smiles_current_batch):
             batch['smiles'] = [decoy_smiles]
-            batch = add_smiles_to_batch(batch, tokenizer, max_smiles_len)
+            batch = add_smiles_to_batch(batch, tokenizer)
         # Get the model output
             decoy_result = combined_model.forward(
                 protein_voxels=batch['protein'], 
                 labels=batch['input_ids'], 
                 ligand_voxels=batch['ligand'],
                 sample_smiles=False,
-                poc2mol_output=poc2mol_output,
+                predicted_ligand_voxel=poc2mol_output,
                 return_poc2mol_output=False,
                 )
             decoy_likelihood = decoy_result['loss'].item()*-1
@@ -541,6 +544,8 @@ def main():
             device
         )
         combined_model.eval()
+        combined_model.vox2smiles_model.eval()
+        combined_model.poc2mol_model.eval()
         complex_dataset_config = config['data']['train_dataset']['poc2mol_output_dataset']['complex_dataset']['config']
         if 'plinder' in args.pdb_dir or 'hiqbind' in args.pdb_dir:
             test_dataloader = build_parquet_test_dataloader(
@@ -555,12 +560,12 @@ def main():
                 args.pdb_dir, 
                 args.dtype,
             )
-        # smiles_likelihood_results = all_decoy_smiles_likelihood_scoring(
-        #     combined_model, 
-        #     test_dataloader,
-        #     df = pd.read_csv(test_df_path),
-        #     output_dir=os.path.join(output_dir, "plixer_likelihood_scores"),
-        # )
+        smiles_likelihood_results = all_decoy_smiles_likelihood_scoring(
+            combined_model, 
+            test_dataloader,
+            df = pd.read_csv(test_df_path),
+            output_dir=os.path.join(output_dir, "plixer_likelihood_scores"),
+        )
         results = evaluate_combined_model(
             combined_model, 
             test_dataloader,

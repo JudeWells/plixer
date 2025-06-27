@@ -60,8 +60,7 @@ class CombinedProteinToSmilesModel(L.LightningModule):
             decoy_labels=None, 
             ligand_voxels=None, 
             sample_smiles=True,
-            poc2mol_output=None,
-            return_poc2mol_output=False,
+            predicted_ligand_voxels=None,
             temperature=1.0,
             ):
         """
@@ -76,49 +75,43 @@ class CombinedProteinToSmilesModel(L.LightningModule):
                 - ligand_voxels: Generated ligand voxels [batch_size, channels, x, y, z]
         """
         # Generate ligand voxels from protein voxels
-        if poc2mol_output is None:
+        if predicted_ligand_voxels is None:
             poc2mol_output = self.poc2mol_model(protein_voxels, labels=ligand_voxels)
         if isinstance(poc2mol_output, dict):
-            pred_vox = poc2mol_output['pred_vox']
+            predicted_ligand_voxels = poc2mol_output['pred_vox']
         else:
-            pred_vox = poc2mol_output
-        pred_vox = torch.sigmoid(pred_vox)
+            predicted_ligand_voxels = poc2mol_output
+        predicted_ligand_voxels = torch.sigmoid(predicted_ligand_voxels)
         result = {
-            "predicted_ligand_voxels": pred_vox,
+            "predicted_ligand_voxels": predicted_ligand_voxels,
         }
         if labels is not None:
-            vox2smiles_output = self.vox2smiles_model(pred_vox, labels=labels)
+            masked_labels = labels.clone()
+            masked_labels[masked_labels == self.vox2smiles_model.tokenizer.pad_token_id] = -100
+            vox2smiles_output = self.vox2smiles_model(predicted_ligand_voxels, labels=masked_labels)
             result['logits'] = vox2smiles_output["logits"]
             result['loss'] = vox2smiles_output['loss']
             result['poc2mol_bce'] = poc2mol_output['bce'].mean().item()
             result['poc2mol_dice'] = poc2mol_output['dice'].mean().item()
             result['poc2mol_loss'] = result['poc2mol_bce'] + result['poc2mol_dice']
-            masked_labels = labels.clone()
-            masked_labels[masked_labels == self.vox2smiles_model.tokenizer.pad_token_id] = -100
             result['smiles_teacher_forced_accuracy'] = accuracy_from_outputs(
                 vox2smiles_output, masked_labels, start_ix=1, ignore_index=-100
             )
-        if decoy_labels is not None:
-            vox2smiles_output_decoy_loss = self.vox2smiles_model(pred_vox, labels=decoy_labels)['loss']
-            result['decoy_loss'] = vox2smiles_output_decoy_loss
-            masked_decoy_labels = decoy_labels.clone()
-            masked_decoy_labels[masked_decoy_labels == self.vox2smiles_model.tokenizer.pad_token_id] = -100
-            result['decoy_smiles_true_label_teacher_forced_accuracy'] = accuracy_from_outputs(
-                vox2smiles_output, masked_decoy_labels, start_ix=1, ignore_index=-100
-            )
-            vox2smiles_decoy_output = self.vox2smiles_model(pred_vox, labels=decoy_labels)
-            result['decoy_smiles_decoy_label_teacher_forced_accuracy'] = accuracy_from_outputs(
-                vox2smiles_decoy_output, masked_decoy_labels, start_ix=1, ignore_index=-100
-            )
-        else:
-            result = {
-                "predicted_ligand_voxels": pred_vox,
-            }
-        if return_poc2mol_output:  # TODO: remove this don't use nested dictionary
-            result['poc2mol_output'] = poc2mol_output # maybe we did this because we need the pre-sigmoid voxels?
+            if decoy_labels is not None:  # todo remove this bloc
+                masked_decoy_labels = decoy_labels.clone()
+                masked_decoy_labels[masked_decoy_labels == self.vox2smiles_model.tokenizer.pad_token_id] = -100
+                vox2smiles_output_decoy_loss = self.vox2smiles_model(predicted_ligand_voxels, labels=decoy_labels)['loss']
+                result['decoy_loss'] = vox2smiles_output_decoy_loss
+                result['decoy_smiles_true_label_teacher_forced_accuracy'] = accuracy_from_outputs(
+                    vox2smiles_output, masked_decoy_labels, start_ix=1, ignore_index=-100
+                )
+                vox2smiles_decoy_output = self.vox2smiles_model(predicted_ligand_voxels, labels=decoy_labels)
+                result['decoy_smiles_decoy_label_teacher_forced_accuracy'] = accuracy_from_outputs(
+                    vox2smiles_decoy_output, masked_decoy_labels, start_ix=1, ignore_index=-100
+                )
     
         if sample_smiles:
-            sampled_smiles = self.vox2smiles_model.generate_smiles(pred_vox, temperature=temperature)
+            sampled_smiles = self.vox2smiles_model.generate_smiles(predicted_ligand_voxels, temperature=temperature)
         else:
             sampled_smiles = None
         result['sampled_smiles'] = sampled_smiles
