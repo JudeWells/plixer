@@ -142,7 +142,8 @@ def get_config_from_cpt_path(cpt_path: str) -> DictConfig:
 
 def build_combined_model_from_config(
         config: DictConfig, 
-        ckpt_path: str,
+        vox2smiles_ckpt_path: str,
+        poc2mol_ckpt_path: str,
         dtype: torch.dtype,
         device: torch.device
     ):
@@ -150,11 +151,9 @@ def build_combined_model_from_config(
     from src.models.vox2smiles import VoxToSmilesModel
     from src.models.poc2smiles import CombinedProteinToSmilesModel
 
-    poc2mol_output_dataset_config = config['data']['train_dataset']['poc2mol_output_dataset']
-    poc2mol_config = poc2mol_output_dataset_config['poc2mol_model']
-    poc2mol_model = Poc2Mol.load_from_checkpoint(poc2mol_output_dataset_config['ckpt_path'])
+    poc2mol_model = Poc2Mol.load_from_checkpoint(poc2mol_ckpt_path)
 
-    vox2smiles_model = VoxToSmilesModel.load_from_checkpoint(ckpt_path)
+    vox2smiles_model = VoxToSmilesModel.load_from_checkpoint(vox2smiles_ckpt_path)
 
     combined_model = CombinedProteinToSmilesModel(
         poc2mol_model=poc2mol_model,
@@ -199,12 +198,13 @@ def build_combined_model_from_config(
 #     model.eval()
 #     return model
 
-def load_model(ckpt_path, device, dtype=torch.float32):
+def load_model(vox2smiles_ckpt_path, poc2mol_ckpt_path, device, dtype=torch.float32):
     """High-level wrapper to load a model for inference."""
-    config = get_config_from_cpt_path(ckpt_path)
+    config = get_config_from_cpt_path(vox2smiles_ckpt_path)
     model = build_combined_model_from_config(
         config=config,
-        ckpt_path=ckpt_path,
+        vox2smiles_ckpt_path=vox2smiles_ckpt_path,
+        poc2mol_ckpt_path=poc2mol_ckpt_path,
         dtype=dtype,
         device=device,
     )

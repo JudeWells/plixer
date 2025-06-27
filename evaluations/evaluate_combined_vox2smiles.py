@@ -16,7 +16,7 @@ import pytorch_lightning as pl
 from transformers import PreTrainedTokenizerFast
 from src.models.poc2mol import Poc2Mol
 from src.evaluation.visual import visualise_batch, show_3d_voxel_lig_only, visualize_2d_molecule_batch
-from src.utils.utils import get_config_from_cpt_path
+from src.utils.utils import get_config_from_cpt_path, build_combined_model_from_config
 from src.data.poc2mol.datasets import ComplexDataset, ParquetDataset
 from src.data.common.voxelization.config import Poc2MolDataConfig
 from src.models.poc2smiles import CombinedProteinToSmilesModel
@@ -44,32 +44,6 @@ For eah model we want to evaluate the following metrics:
 - proportion of generated molecules are unique
 """
 
-def build_combined_model_from_config(
-        config: DictConfig, 
-        vox2smiles_ckpt_path: str,
-        dtype: torch.dtype,
-        device: torch.device
-    ):
-    from src.models.poc2mol import Poc2Mol
-    from src.models.vox2smiles import VoxToSmilesModel
-    from src.models.poc2smiles import CombinedProteinToSmilesModel
-
-    poc2mol_output_dataset_config = config['data']['train_dataset']['poc2mol_output_dataset']
-    poc2mol_config = poc2mol_output_dataset_config['poc2mol_model']
-    poc2mol_model = Poc2Mol.load_from_checkpoint(poc2mol_output_dataset_config['ckpt_path'])
-
-    vox2smiles_model = VoxToSmilesModel.load_from_checkpoint(vox2smiles_ckpt_path)
-
-    combined_model = CombinedProteinToSmilesModel(
-        poc2mol_model=poc2mol_model,
-        vox2smiles_model=vox2smiles_model,
-        config=config
-    )
-
-    combined_model = combined_model.to(dtype)
-    combined_model.to(device)
-    return combined_model
-
 
 def compute_auc_roc(df):
     y_true = df['is_hit'].values
@@ -86,9 +60,15 @@ def compute_auc_pr(df):
 def parse_args():
     parser = argparse.ArgumentParser(description="Evaluate Poc2Mol model")
     parser.add_argument(
-        "--ckpt_path", 
+        "--vox2smiles_ckpt_path", 
         type=str, 
         default="logs/CombinedHiQBindCkptFrmPrevCombined/runs/2025-05-06_20-51-46/checkpoints/last.ckpt",
+        help="Path to the model checkpoint"
+    )
+    parser.add_argument(
+        "--poc2mol_ckpt_path", 
+        type=str, 
+        default="logs/poc2mol/runs/2025-04-21_18-13-26/checkpoints/epoch_173.ckpt",
         help="Path to the model checkpoint"
     )
     parser.add_argument(
@@ -536,10 +516,11 @@ def main():
         config = get_config_from_cpt_path(args.ckpt_path)
         device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         combined_model = build_combined_model_from_config(
-            config, 
-            args.ckpt_path,
-            eval(args.dtype),
-            device
+            config=config, 
+            vox2smiles_ckpt_path=args.ckpt_path,
+            poc2mol_ckpt_path=args.ckpt_path,
+            dtype=eval(args.dtype),
+            device=device
         )
         combined_model.eval()
         combined_model.vox2smiles_model.eval()

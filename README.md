@@ -33,6 +33,7 @@
     python download_checkpoints.py
     ```
 
+4. **Check instalation by running**
 
 
 # Poc2Smiles: End-to-End Protein-to-SMILES Model

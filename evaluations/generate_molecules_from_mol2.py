@@ -128,7 +128,7 @@ def main(args):
     config = get_config_from_cpt_path(args.checkpoint)
     model = build_combined_model_from_config(
         config=config,
-        ckpt_path=args.checkpoint,
+        vox2smiles_ckpt_path=args.checkpoint,
         dtype=torch.bfloat16,
         device=device
     )

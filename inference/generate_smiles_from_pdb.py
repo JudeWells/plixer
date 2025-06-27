@@ -24,9 +24,15 @@ def parse_args():
     
     # Paths
     parser.add_argument(
-        "--ckpt_path", 
+        "--vox2smiles_ckpt_path", 
         type=str, 
         default="checkpoints/combined_protein_to_smiles/epoch_000.ckpt", 
+        help="Path to model checkpoint"
+    )
+    parser.add_argument(
+        "--poc2mol_ckpt_path", 
+        type=str, 
+        default="checkpoints/poc_vox_to_mol_vox/epoch_173.ckpt",
         help="Path to model checkpoint"
     )
     parser.add_argument("--pdb_file", 
@@ -72,9 +78,14 @@ def main():
     os.makedirs(args.output_dir, exist_ok=True)
     
     # Load model
-    print(f"Loading model from {args.ckpt_path}")
+    print(f"Loading model from {args.vox2smiles_ckpt_path}")
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    model, config = load_model(args.ckpt_path, device, dtype=args.dtype)
+    model, config = load_model(
+        args.vox2smiles_ckpt_path, 
+        args.poc2mol_ckpt_path, 
+        device, 
+        dtype=args.dtype
+    )
     model.eval()
     
     # Get protein PDB files
