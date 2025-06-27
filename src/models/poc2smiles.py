@@ -9,6 +9,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 from rdkit import Chem
 from rdkit.Chem import AllChem, Draw
+import warnings
 
 from src.models.poc2mol import Poc2Mol
 from src.models.vox2smiles import VoxToSmilesModel
@@ -92,13 +93,23 @@ class CombinedProteinToSmilesModel(L.LightningModule):
             result['poc2mol_bce'] = poc2mol_output['bce'].mean().item()
             result['poc2mol_dice'] = poc2mol_output['dice'].mean().item()
             result['poc2mol_loss'] = result['poc2mol_bce'] + result['poc2mol_dice']
-            result['smiles_teacher_forced_accuracy'] = accuracy_from_outputs(vox2smiles_output, labels, start_ix=1, ignore_index=0)
+            masked_labels = labels.clone()
+            masked_labels[masked_labels == self.vox2smiles_model.tokenizer.pad_token_id] = -100
+            result['smiles_teacher_forced_accuracy'] = accuracy_from_outputs(
+                vox2smiles_output, masked_labels, start_ix=1, ignore_index=-100
+            )
         if decoy_labels is not None:
             vox2smiles_output_decoy_loss = self.vox2smiles_model(pred_vox, labels=decoy_labels)['loss']
             result['decoy_loss'] = vox2smiles_output_decoy_loss
-            result['decoy_smiles_true_label_teacher_forced_accuracy'] = accuracy_from_outputs(vox2smiles_output, decoy_labels, start_ix=1, ignore_index=0)
+            masked_decoy_labels = decoy_labels.clone()
+            masked_decoy_labels[masked_decoy_labels == self.vox2smiles_model.tokenizer.pad_token_id] = -100
+            result['decoy_smiles_true_label_teacher_forced_accuracy'] = accuracy_from_outputs(
+                vox2smiles_output, masked_decoy_labels, start_ix=1, ignore_index=-100
+            )
             vox2smiles_decoy_output = self.vox2smiles_model(pred_vox, labels=decoy_labels)
-            result['decoy_smiles_decoy_label_teacher_forced_accuracy'] = accuracy_from_outputs(vox2smiles_decoy_output, decoy_labels, start_ix=1, ignore_index=0)
+            result['decoy_smiles_decoy_label_teacher_forced_accuracy'] = accuracy_from_outputs(
+                vox2smiles_decoy_output, masked_decoy_labels, start_ix=1, ignore_index=-100
+            )
         else:
             result = {
                 "predicted_ligand_voxels": pred_vox,
@@ -365,12 +376,14 @@ class CombinedProteinToSmilesModel(L.LightningModule):
         generated_smiles = self.vox2smiles_model.generate_smiles(pred_vox)
         return generated_smiles
 
-    def score_smiles(self, protein_voxels, smiles_list, tokenizer, max_smiles_len):
+    def score_smiles(self, protein_voxels, smiles_list, tokenizer, max_smiles_len, batch_size: int = 250):
         """
         Scores a list of SMILES strings against a protein structure.
         Returns a list of log-likelihood scores.
         """
         # 1. Get predicted ligand voxels. This is done only once.
+        self.poc2mol_model.eval()
+        self.vox2smiles_model.eval()
         poc2mol_output = self.poc2mol_model(protein_voxels)
         if isinstance(poc2mol_output, dict):
             pred_vox = poc2mol_output['pred_vox']
@@ -378,26 +391,107 @@ class CombinedProteinToSmilesModel(L.LightningModule):
             pred_vox = poc2mol_output
         pred_vox = torch.sigmoid(pred_vox)
 
+        # 2. Canonicalize SMILES strings when possible
+        processed_smiles = []
+        for s in smiles_list:
+            try:
+                mol = Chem.MolFromSmiles(s)
+                if mol is None:
+                    raise ValueError("RDKit failed to parse SMILES")
+                canonical = Chem.MolToSmiles(mol, canonical=True)
+                print("Original:", s, "Canonical:", canonical)
+            except Exception as e:
+                warnings.warn(
+                    f"Could not canonicalize SMILES '{s}'. Using original string. Error: {str(e)}"
+                )
+                canonical = s
+            processed_smiles.append(canonical)
+
         scores = []
-        for smiles in smiles_list:
-            # 2. Tokenize SMILES
-            if not smiles.startswith(tokenizer.bos_token):
-                smiles = tokenizer.bos_token + smiles
-            if not smiles.endswith(tokenizer.eos_token):
-                smiles = smiles + tokenizer.eos_token
-            
+
+        # Fallback to original (loss-based) method for batch_size == 1. This avoids
+        # unnecessary overhead and guarantees identical behaviour to the legacy
+        # implementation, which can be useful for detailed debugging or single-SMILES
+        # evaluations.
+        if batch_size == 1:
+            for smi in processed_smiles:
+                # ensure BOS/EOS tokens
+                if not smi.startswith(tokenizer.bos_token):
+                    smi_tok = tokenizer.bos_token + smi
+                else:
+                    smi_tok = smi
+                if not smi_tok.endswith(tokenizer.eos_token):
+                    smi_tok = smi_tok + tokenizer.eos_token
+
+                tokenized_single = tokenizer(
+                    [smi_tok],
+                    padding='max_length',
+                    max_length=max_smiles_len,
+                    truncation=True,
+                    return_tensors="pt",
+                )
+
+                labels_single = tokenized_single['input_ids'].to(self.device)
+
+                vox2smiles_output = self.vox2smiles_model(pred_vox, labels=labels_single)
+                loss_val = vox2smiles_output['loss'].item()
+                scores.append(-loss_val)
+
+            return scores
+
+        # 3. Iterate through SMILES in batches (modern vectorised method)
+        for start_idx in range(0, len(processed_smiles), batch_size):
+            batch_smiles = processed_smiles[start_idx : start_idx + batch_size]
+
+            # Add BOS/EOS tokens
+            batch_smiles_with_tokens = []
+            for smi in batch_smiles:
+                if not smi.startswith(tokenizer.bos_token):
+                    smi = tokenizer.bos_token + smi
+                if not smi.endswith(tokenizer.eos_token):
+                    smi = smi + tokenizer.eos_token
+                batch_smiles_with_tokens.append(smi)
+            batch_max_length = max(len(smi) for smi in batch_smiles_with_tokens)
             tokenized = tokenizer(
-                [smiles], # needs to be a list
+                batch_smiles_with_tokens,
                 padding='max_length',
-                max_length=max_smiles_len,
+                max_length=batch_max_length,
                 truncation=True,
-                return_tensors="pt"
+                return_tensors="pt",
             )
+
             labels = tokenized['input_ids'].to(self.device)
 
-            # 3. Get score (negative loss) from vox2smiles model
-            vox2smiles_output = self.vox2smiles_model(pred_vox, labels=labels)
-            loss = vox2smiles_output['loss']
-            scores.append(-loss.item())
+            # Repeat predicted voxel for each SMILES in the batch
+            pred_vox_batch = pred_vox.repeat(labels.size(0), 1, 1, 1, 1)
+
+            # Forward pass through Vox2Smiles model to obtain logits
+            vox2smiles_output = self.vox2smiles_model(pred_vox_batch, labels=labels)
+            logits = vox2smiles_output.logits  # (B, seq_len, vocab)
+
+            # Compute per-sample average log-likelihood
+            vocab_size = logits.size(-1)
+            log_probs = torch.nn.functional.log_softmax(logits, dim=-1)
+
+            masked_labels = labels.clone()
+            pad_token_id = self.vox2smiles_model.tokenizer.pad_token_id
+            masked_labels[masked_labels == pad_token_id] = -100
+
+            # Gather log-probs corresponding to the true tokens
+            gather_idx = masked_labels.clone()
+            gather_idx[gather_idx == -100] = 0  # placeholder index (will be masked later)
+            token_log_probs = log_probs.gather(-1, gather_idx.unsqueeze(-1)).squeeze(-1)
+
+            # Zero-out padding positions
+            valid_mask = (masked_labels != -100)
+            token_log_probs = token_log_probs * valid_mask
+
+            # Compute mean log-likelihood per sample (same scale as −CE)
+            seq_lengths = valid_mask.sum(dim=1)
+            # To avoid division by zero (shouldn't happen) we clamp minimum to 1
+            seq_lengths = seq_lengths.clamp(min=1)
+            sample_log_likelihood = token_log_probs.sum(dim=1) / seq_lengths
+
+            scores.extend(sample_log_likelihood.detach().cpu().tolist())
 
         return scores

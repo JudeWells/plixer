@@ -87,11 +87,22 @@ class VoxToSmilesModel(LightningModule):
         self.train_poc2mol_sample_counter = 0
         self.val_validity = MeanMetric()
         self.val_validity_poc2mol_output = MeanMetric()
+    
     def forward(self, pixel_values, labels=None):
-        if labels is not None:
-            return self.model(pixel_values=pixel_values, labels=labels, return_dict=True)
-        else:
+        if labels is None:
             raise ValueError("Labels are required for Vox2Smiles forward method.")
+
+        decoder_attention_mask = (labels != self.tokenizer.pad_token_id).long()
+
+        masked_labels = labels.clone()
+        masked_labels[masked_labels == self.tokenizer.pad_token_id] = -100
+
+        return self.model(
+            pixel_values=pixel_values,
+            labels=masked_labels,
+            decoder_attention_mask=decoder_attention_mask,
+            return_dict=True,
+        )
 
     def training_step(self, batch, batch_idx):
         pixel_values = batch["pixel_values"]
@@ -107,7 +118,9 @@ class VoxToSmilesModel(LightningModule):
             elements_with_loss_mask = batch['poc2mol_loss'] > 0
             self.train_poc2mol_sample_counter += elements_with_loss_mask.int().sum()
             self.log("train/proportion_from_poc2mol", self.train_poc2mol_sample_counter / self.train_sample_counter, on_step=True, on_epoch=True, prog_bar=True, batch_size=len(batch['pixel_values']))
-            accuracy = accuracy_from_outputs(outputs, labels, start_ix=1, ignore_index=0)
+            masked_labels = labels.clone()
+            masked_labels[masked_labels == self.tokenizer.pad_token_id] = -100
+            accuracy = accuracy_from_outputs(outputs, masked_labels, start_ix=1, ignore_index=-100)
             if elements_with_loss_mask.int().sum() == 0:
                 self.log("train/accuracy", accuracy, on_step=True, on_epoch=True, prog_bar=True, batch_size=len(labels))
             elif elements_with_loss_mask.int().sum() == len(labels):
@@ -122,7 +135,9 @@ class VoxToSmilesModel(LightningModule):
         labels = batch["input_ids"]
         outputs = self(pixel_values, labels=labels)
         loss = outputs.loss
-        accuracy = accuracy_from_outputs(outputs, labels, start_ix=1, ignore_index=0)
+        masked_labels = labels.clone()
+        masked_labels[masked_labels == self.tokenizer.pad_token_id] = -100
+        accuracy = accuracy_from_outputs(outputs, masked_labels, start_ix=1, ignore_index=-100)
         if dataloader_idx == 0:
             self.val_loss(loss)
             self.log(f"val/loss", self.val_loss, on_step=False, on_epoch=True, prog_bar=True, add_dataloader_idx=False)
@@ -175,7 +190,9 @@ class VoxToSmilesModel(LightningModule):
         loss = outputs.loss
         self.test_loss(loss)
         self.log("test/loss", self.test_loss, on_step=False, on_epoch=True, prog_bar=True)
-        accuracy = accuracy_from_outputs(outputs, labels, start_ix=1, ignore_index=0)
+        masked_labels = labels.clone()
+        masked_labels[masked_labels == self.tokenizer.pad_token_id] = -100
+        accuracy = accuracy_from_outputs(outputs, masked_labels, start_ix=1, ignore_index=-100)
         self.test_acc(accuracy)
         self.log("test/accuracy", self.test_acc, on_step=False, on_epoch=True, prog_bar=True)
         return loss

@@ -242,8 +242,6 @@ class ParquetVox2SmilesDataset(Dataset):
             # If we can't parse the mol block, try to create from SMILES
             smiles = mol_data['smiles']
             mol = Chem.MolFromSmiles(smiles)
-            
-            # If we still can't create a molecule, use a fallback (benzene)
             if mol is None:
                 return self.__getitem__(np.random.randint(0, len(self)))
 
