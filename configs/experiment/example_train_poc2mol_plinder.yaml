@@ -8,7 +8,7 @@ defaults:
 
 
 task_name: "poc2mol"
-tags: ["dev"]
+tags: ["debug"]
 train: True
 test: True
 optimized_metric: "val/loss"

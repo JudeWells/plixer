@@ -7,7 +7,13 @@ defaults:
   - override /logger: wandb.yaml
 
 task_name: "vox2smilesZincAndPoc2MolOutputsHiqBind_resume"
-tags: ["combined_data"]
+tags:
+  - "${task_name}"
+  - "Combi"
+  - "lr${model.config.lr}" 
+  - "acc${trainer.accumulate_grad_batches}"
+  - "batch${data.config.batch_size}"
+
 train: True
 test: True
 optimized_metric: "val/loss"

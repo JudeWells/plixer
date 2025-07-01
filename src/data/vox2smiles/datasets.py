@@ -41,14 +41,22 @@ def get_collate_function(tokenizer):
             attention_mask = attention_mask[:, :trim_len]
 
         smiles_str = [item["smiles_str"] for item in batch]
+        # Optional decoy SMILES list (same for all items typically)
+        decoy_smiles = None
+        if "decoy_smiles" in batch[0]:
+            # Assume identical decoy list per sample – take from first element
+            decoy_smiles = batch[0]["decoy_smiles"]
 
-        return {
+        batch_dict = {
             "pixel_values": pixel_values,
             "input_ids": input_ids,
             "attention_mask": attention_mask,
             "smiles_str": smiles_str,
             "poc2mol_loss": poc2mol_loss,
         }
+        if decoy_smiles is not None:
+            batch_dict["decoy_smiles"] = decoy_smiles
+        return batch_dict
     
     return collate_fn
 
@@ -306,6 +314,8 @@ class Poc2MolOutputDataset(Dataset):
         complex_dataset,
         max_smiles_len=200,
         ckpt_path: str = None,
+        decoy_smiles_list: list = None,
+        include_decoys: bool = True,
     ):
         self.device = "cuda" if torch.cuda.is_available() else "cpu"
         self.poc2mol_model = poc2mol_model.to(complex_dataset.config.dtype).to(self.device)
@@ -326,6 +336,16 @@ class Poc2MolOutputDataset(Dataset):
                 self.poc2mol_model.load_state_dict(checkpoint)
 
         self.poc2mol_model.eval()
+
+        self.include_decoys = include_decoys
+        if self.include_decoys:
+            if decoy_smiles_list is not None:
+                self.decoy_smiles_list = decoy_smiles_list
+            else:
+                # Build list lazily later
+                self.decoy_smiles_list = None
+        else:
+            self.decoy_smiles_list = []
 
     def __len__(self):
         return len(self.complex_dataset)
@@ -360,13 +380,23 @@ class Poc2MolOutputDataset(Dataset):
             return_tensors="pt",
         ).to(self.device)
         
-        # Return the predicted ligand voxel and tokenized SMILES string
+        # Ensure decoy list exists
+        if self.include_decoys and self.decoy_smiles_list is None:
+            # Lazy construction (store all SMILES strings from dataset on first call)
+            try:
+                # Collect SMILES from all entries in the underlying complex_dataset
+                self.decoy_smiles_list = [self.complex_dataset[i]['smiles'] for i in range(len(self.complex_dataset))]
+            except Exception:
+                # Fallback: use current SMILES only (evaluation will skip decoy logic)
+                self.decoy_smiles_list = [smiles_str]
+
         return {
             "pixel_values": predicted_ligand_voxel,
             "input_ids": smiles["input_ids"].squeeze(),
             "attention_mask": smiles["attention_mask"].squeeze(),
             "smiles_str": smiles_str,
             "poc2mol_loss": outputs['loss'].item(),
+            **({"decoy_smiles": self.decoy_smiles_list} if self.include_decoys else {}),
         }
 
 

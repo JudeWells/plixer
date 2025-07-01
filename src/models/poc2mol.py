@@ -52,14 +52,11 @@ class Poc2Mol(LightningModule):
         lr: float = 1e-4,
         weight_decay: float = 0.0,
         scheduler: Optional[Dict[str, Any]] = None,
-        scheduler_name: str = None,  # legacy support
         num_training_steps: Optional[int] = 100000,
         num_warmup_steps: int = 0,
         num_decay_steps: int = 0,
         img_save_dir: str = None,
-        scheduler_kwargs: Dict[str, Any] = None,
         matmul_precision: str = 'high',
-        compile: bool = False,
         override_optimizer_on_load: bool = False,
         visualise_train: bool = True,
         visualise_val: bool = True,
@@ -85,8 +82,6 @@ class Poc2Mol(LightningModule):
         self.lr = lr
         self.weight_decay = weight_decay
         self.scheduler_config = scheduler or {}
-        self.scheduler_name = scheduler_name  # legacy
-        self.scheduler_kwargs = scheduler_kwargs
         self.num_decay_steps = num_decay_steps
         self.num_training_steps = num_training_steps
         self.num_warmup_steps = num_warmup_steps
@@ -235,13 +230,6 @@ class Poc2Mol(LightningModule):
 
         # Resolve scheduler configuration
         scheduler_config = self.scheduler_config.copy()
-
-        # Fallback to legacy single-name arguments if new config not provided
-        if not scheduler_config and self.scheduler_name is not None:
-            scheduler_config = {
-                "type": self.scheduler_name,
-                "num_warmup_steps": self.num_warmup_steps,
-            }
 
         if not scheduler_config:
             # No scheduler requested – return optimizer only

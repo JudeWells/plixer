@@ -10,6 +10,7 @@ import numpy as np
 from rdkit import Chem
 from rdkit.Chem import AllChem, Draw
 import warnings
+from sklearn.metrics import roc_auc_score
 
 from src.models.poc2mol import Poc2Mol
 from src.models.vox2smiles import VoxToSmilesModel
@@ -28,7 +29,8 @@ class CombinedProteinToSmilesModel(L.LightningModule):
             poc2mol_model, 
             vox2smiles_model, 
             config, 
-            override_optimizer_on_load: bool = False
+            override_optimizer_on_load: bool = False,
+            decoy_smiles_list: list = None,
         ):
         """
         Initialize the combined model.
@@ -52,6 +54,16 @@ class CombinedProteinToSmilesModel(L.LightningModule):
             os.makedirs(self.config["img_save_dir"], exist_ok=True)
         
         self.override_optimizer_on_load = override_optimizer_on_load
+        # Decoy SMILES list for validation-time rescoring
+        if isinstance(decoy_smiles_list, str) and os.path.exists(decoy_smiles_list):
+            # Assume CSV with `smiles` column
+            try:
+                import pandas as _pd
+                self.decoy_smiles_list = _pd.read_csv(decoy_smiles_list).smiles.tolist()
+            except Exception as _e:
+                raise ValueError(f"Could not load decoy SMILES from '{decoy_smiles_list}': {_e}")
+        else:
+            self.decoy_smiles_list = decoy_smiles_list
     
     def forward(
         self,
@@ -233,7 +245,7 @@ class CombinedProteinToSmilesModel(L.LightningModule):
         # Get protein voxels and SMILES tokens
         protein_voxels = batch["protein_voxels"]
         smiles_tokens = batch["smiles_tokens"]
-        true_smiles = batch.get("smiles_strings", [])
+        true_smiles = batch.get("smiles_strings", batch.get("smiles_str", []))
         
         # Forward pass with labels to obtain loss + logits
         output = self(
@@ -267,6 +279,49 @@ class CombinedProteinToSmilesModel(L.LightningModule):
                 uniqueness = calculate_uniqueness(generated_smiles)
                 self.log("val/novelty", novelty, on_step=False, on_epoch=True)
                 self.log("val/uniqueness", uniqueness, on_step=False, on_epoch=True)
+        
+        # --------------------------------------------------------------
+        #  Decoy-based likelihood AUC ROC evaluation (optional)
+        # --------------------------------------------------------------
+        decoy_smiles_source = batch.get("decoy_smiles", getattr(self, "decoy_smiles_list", None))
+        if decoy_smiles_source is not None and len(decoy_smiles_source) > 1 and len(true_smiles) > 0:
+            for idx_in_batch, tgt_smi in enumerate(true_smiles):
+                if tgt_smi is None or len(tgt_smi) == 0:
+                    continue
+                decoys = [s for s in decoy_smiles_source if s != tgt_smi]
+                if len(decoys) == 0:
+                    continue
+
+                smiles_candidates = [tgt_smi] + decoys
+                ll_scores = self._log_likelihoods_for_smiles_list(
+                    ligand_voxels[idx_in_batch : idx_in_batch + 1],  # keep tensor dims
+                    smiles_candidates,
+                    batch_size=250,
+                )
+
+                labels_auc = [1] + [0] * len(decoys)
+                try:
+                    auc_val = roc_auc_score(labels_auc, ll_scores)
+                    self.log(
+                        "val/decoy_roc_auc",
+                        auc_val,
+                        on_step=False,
+                        on_epoch=True,
+                        prog_bar=True,
+                    )
+
+                    sorted_indices = sorted(
+                        range(len(ll_scores)), key=lambda i: ll_scores[i], reverse=True
+                    )
+                    rank_of_hit = sorted_indices.index(0)
+                    self.log(
+                        "val/hit_rank_among_decoys",
+                        rank_of_hit,
+                        on_step=False,
+                        on_epoch=True,
+                    )
+                except ValueError:
+                    pass
         
         return {
             "loss": loss,
@@ -544,5 +599,79 @@ class CombinedProteinToSmilesModel(L.LightningModule):
             sample_log_likelihood = token_log_probs.sum(dim=1) / seq_lengths
 
             scores.extend(sample_log_likelihood.detach().cpu().tolist())
+
+        return scores
+
+    def _log_likelihoods_for_smiles_list(
+        self,
+        ligand_voxels: torch.Tensor,
+        smiles_list: list,
+        batch_size: int = 250,
+    ):
+        """Compute average log-likelihood (−CE) for every SMILES in *smiles_list*.
+
+        The method reuses the **provided** *ligand_voxels* tensor (shape 1×C×X×Y×Z) and
+        therefore avoids additional Poc2Mol forward passes.  The voxels are repeated
+        as needed to match the mini-batch size.
+        """
+
+        if len(smiles_list) == 0:
+            return []
+
+        device = ligand_voxels.device
+        tokenizer = self.vox2smiles_model.tokenizer
+
+        processed_smiles = []
+        for smi in smiles_list:
+            # Ensure BOS/EOS tokens
+            if not smi.startswith(tokenizer.bos_token):
+                smi_tok = tokenizer.bos_token + smi
+            else:
+                smi_tok = smi
+            if not smi_tok.endswith(tokenizer.eos_token):
+                smi_tok = smi_tok + tokenizer.eos_token
+            processed_smiles.append(smi_tok)
+
+        scores = []
+
+        # Vectorised evaluation in chunks to avoid OOM
+        for start in range(0, len(processed_smiles), batch_size):
+            batch_smiles = processed_smiles[start : start + batch_size]
+            max_len = max(len(s) for s in batch_smiles)
+            tokenized = tokenizer(
+                batch_smiles,
+                padding='max_length',
+                max_length=max_len,
+                truncation=True,
+                return_tensors='pt',
+            )
+            labels = tokenized['input_ids'].to(device)
+
+            # Repeat voxels for every SMILES in this chunk
+            vox_batch = ligand_voxels.repeat(labels.size(0), 1, 1, 1, 1)
+
+            # Forward pass (teacher forced)
+            outputs = self.vox2smiles_model(vox_batch, labels=labels)
+
+            # Convert CE loss to log-likelihood per sample
+            logits = outputs.logits  # (B,L,V)
+            log_probs = torch.nn.functional.log_softmax(logits, dim=-1)
+
+            pad_id = tokenizer.pad_token_id
+            masked_labels = labels.clone()
+            masked_labels[masked_labels == pad_id] = -100
+
+            gather_idx = masked_labels.clone()
+            gather_idx[gather_idx == -100] = 0
+            token_log_probs = log_probs.gather(-1, gather_idx.unsqueeze(-1)).squeeze(-1)
+
+            # Mask padding
+            valid_mask = masked_labels != -100
+            token_log_probs = token_log_probs * valid_mask
+
+            seq_lengths = valid_mask.sum(dim=1).clamp(min=1)
+            sample_ll = token_log_probs.sum(dim=1) / seq_lengths  # average LL per token
+
+            scores.extend(sample_ll.detach().cpu().tolist())
 
         return scores

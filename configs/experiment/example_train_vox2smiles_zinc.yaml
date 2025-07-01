@@ -6,7 +6,7 @@ defaults:
   - _self_
 
 task_name: "vox2smilesZinc"
-tags: ["dev", "vox2smiles", "zinc"]
+tags: ["debug"]
 train: True
 test: True
 optimized_metric: "val/loss"

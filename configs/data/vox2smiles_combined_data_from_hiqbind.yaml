@@ -9,7 +9,7 @@ data_path: "../geom/rdkit_folder/drugs"
 num_workers: 0
 config:
   _target_: src.data.common.voxelization.config.Vox2SmilesDataConfig
-  batch_size: 96
+  batch_size: 64
   val_batch_size: 200
   secondary_val_batch_size: 50
   max_smiles_len: 200
@@ -26,6 +26,8 @@ train_dataset:
     config: ${data.config}
   poc2mol_output_dataset:
     _target_: src.data.vox2smiles.datasets.Poc2MolOutputDataset
+    decoy_smiles_list: null
+    include_decoys: false  # set false to exclude decoy scoring
     ckpt_path: checkpoints/poc_vox_to_mol_vox/epoch_173.ckpt
     complex_dataset:
       _target_: src.data.poc2mol.datasets.ParquetDataset
@@ -74,6 +76,8 @@ train_dataset:
         random_translation: 6.0
 secondary_val_dataset:
   _target_: src.data.vox2smiles.datasets.Poc2MolOutputDataset
+  decoy_smiles_list: null
+  include_decoys: false
   ckpt_path: checkpoints/poc_vox_to_mol_vox/epoch_173.ckpt
   complex_dataset:
     _target_: src.data.poc2mol.datasets.ParquetDataset

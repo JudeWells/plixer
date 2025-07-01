@@ -1,4 +1,22 @@
 _target_: src.models.poc2mol.Poc2Mol
+matmul_precision: 'high'
+lr: 1e-4
+img_save_dir: ${paths.img_save_dir}
+weight_decay: 0.2
+loss:
+  name: BCEDiceLoss
+  weight: null
+  normalization: sigmoid # which normalization to apply before DICE loss
+  alpha: 1.0 # BCE weight
+  beta: 1.0 # DICE weight
+
+scheduler:
+  type: "cosine_with_min_lr"
+  num_warmup_steps: 500
+  min_lr_rate: 0.5
+  interval: "step"
+  frequency: 1
+
 config:
   _target_: src.models.poc2mol.ResUnetConfig
   in_channels: 4
@@ -13,18 +31,3 @@ config:
   upsample: default
   dropout_prob: 0.1
   basic_module: ${oc.select:src.models.pytorch3dunet_lib.unet3d.buildingblocks.ResNetBlockSE, src.models.pytorch3dunet_lib.unet3d.buildingblocks.ResNetBlockSE}
-loss:
-  name: BCEDiceLoss
-  weight: null
-  normalization: sigmoid # which normalization to apply before DICE loss
-  alpha: 1.0 # BCE weight
-  beta: 1.0 # DICE weight
-matmul_precision: 'high'
-lr: 1e-4
-scheduler:
-  type: "cosine_with_min_lr"
-  num_warmup_steps: 50
-  min_lr_rate: 0.1
-  interval: "step"
-  frequency: 1
-img_save_dir: ${paths.img_save_dir}
