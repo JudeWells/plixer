@@ -283,45 +283,73 @@ class CombinedProteinToSmilesModel(L.LightningModule):
         # --------------------------------------------------------------
         #  Decoy-based likelihood AUC ROC evaluation (optional)
         # --------------------------------------------------------------
-        decoy_smiles_source = batch.get("decoy_smiles", getattr(self, "decoy_smiles_list", None))
-        if decoy_smiles_source is not None and len(decoy_smiles_source) > 1 and len(true_smiles) > 0:
-            for idx_in_batch, tgt_smi in enumerate(true_smiles):
-                if tgt_smi is None or len(tgt_smi) == 0:
-                    continue
-                decoys = [s for s in decoy_smiles_source if s != tgt_smi]
-                if len(decoys) == 0:
-                    continue
+        if "candidate_tokens" in batch and "binder_indices" in batch:
+            candidate_tokens = batch["candidate_tokens"]  # dict with tensors (N,L)
+            binder_indices = batch["binder_indices"]      # (B,)
 
-                smiles_candidates = [tgt_smi] + decoys
-                ll_scores = self._log_likelihoods_for_smiles_list(
-                    ligand_voxels[idx_in_batch : idx_in_batch + 1],  # keep tensor dims
-                    smiles_candidates,
-                    batch_size=250,
-                )
+            # Ensure tensors on same device
+            candidate_ids = candidate_tokens["input_ids"].to(ligand_voxels.device)
+            pad_id = self.vox2smiles_model.tokenizer.pad_token_id
 
-                labels_auc = [1] + [0] * len(decoys)
+            for i in range(candidate_ids.size(0)):
+                lv = ligand_voxels[i : i + 1]
+                ids = candidate_ids  # shared across batch
+
+                # Repeat voxels for each candidate
+                vox_batch = lv.repeat(ids.size(0), 1, 1, 1, 1)
+
+                # Compute log-likelihoods in one shot
+                outputs = self.vox2smiles_model(vox_batch, labels=ids)
+                logits = outputs.logits
+                log_probs = torch.nn.functional.log_softmax(logits, dim=-1)
+
+                masked_labels = ids.clone()
+                masked_labels[masked_labels == pad_id] = -100
+                gather_idx = masked_labels.clone()
+                gather_idx[gather_idx == -100] = 0
+                token_log_probs = log_probs.gather(-1, gather_idx.unsqueeze(-1)).squeeze(-1)
+                valid_mask = masked_labels != -100
+                token_log_probs = token_log_probs * valid_mask
+                seq_len = valid_mask.sum(dim=1).clamp(min=1)
+                sample_ll = (token_log_probs.sum(dim=1) / seq_len).detach().cpu().numpy()
+
+                true_idx = binder_indices[i].item()
+                labels_auc = np.zeros(len(sample_ll))
+                labels_auc[true_idx] = 1
+
                 try:
-                    auc_val = roc_auc_score(labels_auc, ll_scores)
-                    self.log(
-                        "val/decoy_roc_auc",
-                        auc_val,
-                        on_step=False,
-                        on_epoch=True,
-                        prog_bar=True,
-                    )
+                    auc_val = roc_auc_score(labels_auc, sample_ll)
+                    self.log("val/decoy_roc_auc", auc_val, on_step=False, on_epoch=True, prog_bar=True)
 
-                    sorted_indices = sorted(
-                        range(len(ll_scores)), key=lambda i: ll_scores[i], reverse=True
-                    )
-                    rank_of_hit = sorted_indices.index(0)
-                    self.log(
-                        "val/hit_rank_among_decoys",
-                        rank_of_hit,
-                        on_step=False,
-                        on_epoch=True,
-                    )
+                    rank_of_hit = int(np.where((-sample_ll).argsort() == true_idx)[0])
+                    self.log("val/hit_rank_among_decoys", rank_of_hit, on_step=False, on_epoch=True)
                 except ValueError:
                     pass
+        else:
+            # Fallback to legacy decoy_smiles_source if provided
+            decoy_smiles_source = batch.get("decoy_smiles", getattr(self, "decoy_smiles_list", None))
+            if decoy_smiles_source is not None and len(decoy_smiles_source) > 1 and len(true_smiles) > 0:
+                for idx_in_batch, tgt_smi in enumerate(true_smiles):
+                    if tgt_smi is None or len(tgt_smi) == 0:
+                        continue
+                    decoys = [s for s in decoy_smiles_source if s != tgt_smi]
+                    if len(decoys) == 0:
+                        continue
+                    smiles_candidates = [tgt_smi] + decoys
+                    ll_scores = self._log_likelihoods_for_smiles_list(
+                        ligand_voxels[idx_in_batch : idx_in_batch + 1],
+                        smiles_candidates,
+                        batch_size=250,
+                    )
+                    labels_auc = [1] + [0] * len(decoys)
+                    try:
+                        auc_val = roc_auc_score(labels_auc, ll_scores)
+                        self.log("val/decoy_roc_auc", auc_val, on_step=False, on_epoch=True, prog_bar=True)
+                        sorted_indices = sorted(range(len(ll_scores)), key=lambda k: ll_scores[k], reverse=True)
+                        rank_of_hit = sorted_indices.index(0)
+                        self.log("val/hit_rank_among_decoys", rank_of_hit, on_step=False, on_epoch=True)
+                    except ValueError:
+                        pass
         
         return {
             "loss": loss,

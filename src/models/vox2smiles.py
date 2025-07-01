@@ -17,6 +17,7 @@ from PIL import Image, ImageDraw, ImageFont
 from src.models.modeling_vit_3d import ViTModel3D
 from src.data.common.tokenizers.smiles_tokenizer import build_smiles_tokenizer
 from src.utils.metrics import accuracy_from_outputs, calculate_validity, calculate_novelty, calculate_uniqueness
+from sklearn.metrics import roc_auc_score
 
 
 class VoxToSmilesModel(LightningModule):
@@ -185,6 +186,51 @@ class VoxToSmilesModel(LightningModule):
                 self.visualize_smiles(batch, sample_str=sample_str)
             except Exception as e:
                 print("Error visualizing smiles: ", e)
+
+        # ----------------------------------------------------------
+        # Decoy-based AUROC evaluation when candidate tokens provided
+        # ----------------------------------------------------------
+        if "candidate_tokens" in batch and "binder_indices" in batch:
+            candidate_tokens = batch["candidate_tokens"]  # dict of stacked tensors (N,L)
+            binder_indices = batch["binder_indices"]      # (B,)
+
+            cand_ids = candidate_tokens["input_ids"].to(pixel_values.device)  # (N,L)
+            pad_id = self.tokenizer.pad_token_id
+
+            N = cand_ids.size(0)
+            for i in range(pixel_values.size(0)):
+                lv = pixel_values[i : i + 1]  # (1,C,D,H,W)
+                vox_batch = lv.repeat(N, 1, 1, 1, 1)  # (N,C,D,H,W)
+
+                outputs_full = self(vox_batch, labels=cand_ids)
+                logits = outputs_full.logits  # (N,L,vocab)
+
+                log_probs = torch.nn.functional.log_softmax(logits, dim=-1)
+
+                masked_labels = cand_ids.clone()
+                masked_labels[masked_labels == pad_id] = -100
+
+                gather_idx = masked_labels.clone()
+                gather_idx[gather_idx == -100] = 0
+                token_log_probs = log_probs.gather(-1, gather_idx.unsqueeze(-1)).squeeze(-1)
+
+                valid_mask = masked_labels != -100
+                token_log_probs = token_log_probs * valid_mask
+                seq_len = valid_mask.sum(dim=1).clamp(min=1)
+                sample_ll = (token_log_probs.sum(dim=1) / seq_len).detach().cpu().numpy()  # (N,)
+
+                true_ix = binder_indices[i].item()
+                labels_vec = np.zeros(N)
+                labels_vec[true_ix] = 1
+
+                try:
+                    auc_val = roc_auc_score(labels_vec, sample_ll)
+                    self.log("val/decoy_roc_auc", auc_val, on_step=False, on_epoch=True, prog_bar=True)
+
+                    rank_of_hit = int(np.where((-sample_ll).argsort() == true_ix)[0])
+                    self.log("val/hit_rank_among_decoys", rank_of_hit, on_step=False, on_epoch=True)
+                except ValueError:
+                    pass
         return loss
 
     def test_step(self, batch, batch_idx):

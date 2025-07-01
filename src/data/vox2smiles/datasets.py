@@ -42,10 +42,7 @@ def get_collate_function(tokenizer):
 
         smiles_str = [item["smiles_str"] for item in batch]
         # Optional decoy SMILES list (same for all items typically)
-        decoy_smiles = None
-        if "decoy_smiles" in batch[0]:
-            # Assume identical decoy list per sample – take from first element
-            decoy_smiles = batch[0]["decoy_smiles"]
+        has_candidates = "candidate_tokens" in batch[0]
 
         batch_dict = {
             "pixel_values": pixel_values,
@@ -54,8 +51,9 @@ def get_collate_function(tokenizer):
             "smiles_str": smiles_str,
             "poc2mol_loss": poc2mol_loss,
         }
-        if decoy_smiles is not None:
-            batch_dict["decoy_smiles"] = decoy_smiles
+        if has_candidates:
+            batch_dict["candidate_tokens"] = batch[0]["candidate_tokens"]
+            batch_dict["binder_indices"] = torch.tensor([item["binder_index"] for item in batch], dtype=torch.long)
         return batch_dict
     
     return collate_fn
@@ -339,11 +337,9 @@ class Poc2MolOutputDataset(Dataset):
 
         self.include_decoys = include_decoys
         if self.include_decoys:
-            if decoy_smiles_list is not None:
-                self.decoy_smiles_list = decoy_smiles_list
-            else:
-                # Build list lazily later
-                self.decoy_smiles_list = None
+            assert decoy_smiles_list is not None, "decoy_smiles_list must be provided if include_decoys is True"
+            self.decoy_smiles_list = decoy_smiles_list
+            self.tokenize_decoys()
         else:
             self.decoy_smiles_list = []
 
@@ -368,6 +364,14 @@ class Poc2MolOutputDataset(Dataset):
             )
             predicted_ligand_voxel = outputs['predicted_ligand_voxels'].squeeze(0)
 
+        binder_idx = None
+        if self.include_decoys:
+            # Find index of binder in global decoy list
+            binder_idx = self.decoy_smiles_list.index(smiles_str)
+            # candidate tokens are the full stacked tensors (shared across samples)
+            candidate_tokens = self.tokenized_decoy_smiles
+        else:
+            candidate_tokens = None
 
         smiles_str = self.tokenizer.bos_token + smiles_str + self.tokenizer.eos_token
         
@@ -379,25 +383,49 @@ class Poc2MolOutputDataset(Dataset):
             truncation=True,
             return_tensors="pt",
         ).to(self.device)
-        
-        # Ensure decoy list exists
-        if self.include_decoys and self.decoy_smiles_list is None:
-            # Lazy construction (store all SMILES strings from dataset on first call)
-            try:
-                # Collect SMILES from all entries in the underlying complex_dataset
-                self.decoy_smiles_list = [self.complex_dataset[i]['smiles'] for i in range(len(self.complex_dataset))]
-            except Exception:
-                # Fallback: use current SMILES only (evaluation will skip decoy logic)
-                self.decoy_smiles_list = [smiles_str]
 
-        return {
+        result = {
             "pixel_values": predicted_ligand_voxel,
             "input_ids": smiles["input_ids"].squeeze(),
             "attention_mask": smiles["attention_mask"].squeeze(),
             "smiles_str": smiles_str,
             "poc2mol_loss": outputs['loss'].item(),
-            **({"decoy_smiles": self.decoy_smiles_list} if self.include_decoys else {}),
         }
+
+        if self.include_decoys:
+            result.update({
+                "candidate_tokens": candidate_tokens,  # dict with stacked tensors
+                "binder_index": binder_idx,
+            })
+
+        return result
+
+    def tokenize_decoys(self):
+        """Tokenize the global decoy SMILES list **once** and store stacked tensors.
+
+        The result is a dictionary with keys (input_ids, attention_mask, token_type_ids)
+        each mapping to a tensor of shape (N_decoys, L).
+        """
+        smiles_with_tokens = [
+            self.tokenizer.bos_token + smi + self.tokenizer.eos_token
+            for smi in self.decoy_smiles_list
+        ]
+
+        max_len = max(
+            len(self.tokenizer.tokenize(s, padding=False, truncation=False))
+            for s in smiles_with_tokens
+        )
+
+        tokenized = self.tokenizer(
+            smiles_with_tokens,
+            padding='max_length',
+            max_length=max_len,
+            truncation=True,
+            return_tensors='pt',
+        )
+
+        # Ensure tensors are on CPU to avoid unnecessary GPU memory duplication
+        self.tokenized_decoy_smiles = {k: v for k, v in tokenized.items()}
 
 
 class CombinedDataset(Dataset):

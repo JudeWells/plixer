@@ -60,6 +60,7 @@ class Poc2Mol(LightningModule):
         override_optimizer_on_load: bool = False,
         visualise_train: bool = True,
         visualise_val: bool = True,
+        n_samples_for_visualisation: int = 2
     ) -> None:
         super().__init__()
         self.save_hyperparameters(logger=False)
@@ -90,6 +91,7 @@ class Poc2Mol(LightningModule):
         self.override_optimizer_on_load = override_optimizer_on_load
         self.visualise_val = visualise_val
         self.visualise_train = visualise_train
+        self.n_samples_for_visualisation = n_samples_for_visualisation
         self.residual_unet_config = config
 
 
@@ -181,8 +183,8 @@ class Poc2Mol(LightningModule):
 
         # Visualisation
         if batch_idx == 0 and self.visualise_train:
-            outputs_for_viz = pred_vox.float().detach().cpu().numpy()
-            visualise_batch(batch["ligand"], outputs_for_viz, batch["name"], save_dir=self.img_save_dir, batch=str(batch_idx))
+            outputs_for_viz = pred_vox[:self.n_samples_for_visualisation].float().detach().cpu().numpy()
+            visualise_batch(batch["ligand"][:self.n_samples_for_visualisation], outputs_for_viz[:self.n_samples_for_visualisation], batch["name"][:self.n_samples_for_visualisation], save_dir=self.img_save_dir, batch=str(batch_idx))
 
         return loss
 
@@ -200,8 +202,8 @@ class Poc2Mol(LightningModule):
         # Optional visualisation
         if self.visualise_val and batch_idx in [0, 50, 100]:
             save_dir = f"{self.img_save_dir}/val" if self.img_save_dir else None
-            outputs_for_viz = pred_vox.float().detach().cpu().numpy()
-            lig, pred, names = batch["ligand"][:4], outputs_for_viz[:4], batch["name"][:4]
+            outputs_for_viz = pred_vox[:self.n_samples_for_visualisation].float().detach().cpu().numpy()
+            lig, pred, names = batch["ligand"][:self.n_samples_for_visualisation], outputs_for_viz[:self.n_samples_for_visualisation], batch["name"][:self.n_samples_for_visualisation]
         
             visualise_batch(
                 lig,
