@@ -36,12 +36,12 @@ class Vox2SmilesDataModule(LightningDataModule):
             self.val_datasets_provided.update(val_datasets)
 
         # Handle legacy single val_dataset & secondary_val_dataset if passed via kwargs
-        legacy_val_dataset = locals().get('val_dataset', None)
-        if legacy_val_dataset is not None:
-            self.val_datasets_provided['val'] = legacy_val_dataset
-        legacy_secondary = locals().get('secondary_val_dataset', None)
-        if legacy_secondary is not None:
-            self.val_datasets_provided['secondary'] = legacy_secondary
+        # legacy_val_dataset = locals().get('val_dataset', None)
+        # if legacy_val_dataset is not None:
+        #     self.val_datasets_provided['val'] = legacy_val_dataset
+        # legacy_secondary = locals().get('secondary_val_dataset', None)
+        # if legacy_secondary is not None:
+        #     self.val_datasets_provided['secondary'] = legacy_secondary
 
         self.test_dataset_provided = test_dataset
         self.tokenizer = build_smiles_tokenizer()

@@ -2,7 +2,7 @@
 _target_: src.data.vox2smiles.data_module.Vox2SmilesDataModule
 defaults:
   - /model@train_dataset.poc2mol_output_dataset.poc2mol_model: poc2mol
-  - /model@secondary_val_dataset.poc2mol_model: poc2mol
+  - /model@val_datasets.hiqbind_val.poc2mol_model: poc2mol
   - _self_
   # - /data@train_dataset.poc2mol_output_dataset.complex_dataset: poc2mol_data
 data_path: "../geom/rdkit_folder/drugs"
