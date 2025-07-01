@@ -183,8 +183,11 @@ class Poc2Mol(LightningModule):
 
         # Visualisation
         if batch_idx == 0 and self.visualise_train:
-            outputs_for_viz = pred_vox[:self.n_samples_for_visualisation].float().detach().cpu().numpy()
-            visualise_batch(batch["ligand"][:self.n_samples_for_visualisation], outputs_for_viz[:self.n_samples_for_visualisation], batch["name"][:self.n_samples_for_visualisation], save_dir=self.img_save_dir, batch=str(batch_idx))
+            try:
+                outputs_for_viz = pred_vox[:self.n_samples_for_visualisation].float().detach().cpu().numpy()
+                visualise_batch(batch["ligand"][:self.n_samples_for_visualisation], outputs_for_viz[:self.n_samples_for_visualisation], batch["name"][:self.n_samples_for_visualisation], save_dir=self.img_save_dir, batch=str(batch_idx))
+            except Exception as e:
+                print(f"Error visualising batch {batch_idx}: {e}")
 
         return loss
 
@@ -201,17 +204,20 @@ class Poc2Mol(LightningModule):
 
         # Optional visualisation
         if self.visualise_val and batch_idx in [0, 50, 100]:
-            save_dir = f"{self.img_save_dir}/val" if self.img_save_dir else None
-            outputs_for_viz = pred_vox[:self.n_samples_for_visualisation].float().detach().cpu().numpy()
-            lig, pred, names = batch["ligand"][:self.n_samples_for_visualisation], outputs_for_viz[:self.n_samples_for_visualisation], batch["name"][:self.n_samples_for_visualisation]
-        
-            visualise_batch(
-                lig,
-                pred,
-                names,
-                save_dir=save_dir,
-                batch=str(batch_idx)
-            )
+            try:
+                save_dir = f"{self.img_save_dir}/val" if self.img_save_dir else None
+                outputs_for_viz = pred_vox[:self.n_samples_for_visualisation].float().detach().cpu().numpy()
+                lig, pred, names = batch["ligand"][:self.n_samples_for_visualisation], outputs_for_viz[:self.n_samples_for_visualisation], batch["name"][:self.n_samples_for_visualisation]
+            
+                visualise_batch(
+                    lig,
+                    pred,
+                        names,
+                        save_dir=save_dir,
+                        batch=str(batch_idx)
+                    )
+            except Exception as e:
+                print(f"Error visualising batch {batch_idx}: {e}")
 
         
         return loss
