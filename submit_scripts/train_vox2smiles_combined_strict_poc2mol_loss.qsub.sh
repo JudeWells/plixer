@@ -7,9 +7,9 @@
 #$ -l gpu=true
 #$ -l gpu_type=(a40|a100|a100_80)
 #$ -R y
-#$ -l h_rt=71:55:30
+#$ -l h_rt=119:55:30
 #$ -S /bin/bash
-#$ -N vox2smiCkpt2
+#$ -N Combi0p68
 #$ -t 1
 #$ -o /SAN/orengolab/nsp13/VoxelDiffOuter/VoxelDiff2/qsub_logs/
 #$ -wd /SAN/orengolab/nsp13/VoxelDiffOuter/VoxelDiff2/
@@ -29,6 +29,7 @@ python src/train.py \
 experiment=train_vox2smiles_combined_hiqbind \
 data.num_workers=0 \
 ckpt_path=checkpoints/combined_protein_to_smiles/epoch_000.ckpt \
-data.train_dataset.prob_poc2mol = 0.8 \
-data.train_dataset.max_poc2mol_loss=0.68
+data.train_dataset.prob_poc2mol=0.8 \
+data.train_dataset.max_poc2mol_loss=0.68 \
+trainer.accumulate_grad_batches=32
 date
