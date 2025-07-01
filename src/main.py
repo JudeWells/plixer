@@ -129,7 +129,7 @@ def finetune_vox2smiles(cfg: DictConfig):
     combined_dataset = CombinedDataset(
         poc2mol_output_dataset=poc2mol_output_dataset,
         vox2smiles_dataset=vox2smiles_data_module.train_dataset,
-        ratio=cfg.training.ratio,
+        prob_poc2mol=cfg.training.ratio,
     )
     
     # Create data loaders

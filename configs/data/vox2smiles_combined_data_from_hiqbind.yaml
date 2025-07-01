@@ -14,7 +14,7 @@ config:
   has_protein: false
 train_dataset:
   _target_: src.data.vox2smiles.datasets.CombinedDataset
-  ratio: 0.75 # probability of poc2mol
+  prob_poc2mol: 0.75 # probability of poc2mol
   max_poc2mol_loss: 0.78
   vox2smiles_dataset:
     _target_: src.data.vox2smiles.datasets.ParquetVox2SmilesDataset

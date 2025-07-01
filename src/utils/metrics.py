@@ -18,9 +18,10 @@ def calculate_validity(smiles_list):
     
     valid_count = 0
     for smiles in smiles_list:
-        mol = Chem.MolFromSmiles(smiles)
-        if mol is not None:
-            valid_count += 1
+        if len(smiles) > 0:
+            mol = Chem.MolFromSmiles(smiles)
+            if mol is not None:
+                valid_count += 1
     
     return valid_count / len(smiles_list)
 

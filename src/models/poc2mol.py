@@ -62,10 +62,11 @@ class Poc2Mol(LightningModule):
         compile: bool = False,
         override_optimizer_on_load: bool = False,
         visualise_val: bool = True,
+        visualise_train: bool = True,
     ) -> None:
         super().__init__()
         self.save_hyperparameters(logger=False)
-
+        assert config.final_sigmoid == False, "final_sigmoid must be False"
         self.model = ResidualUNetSE3D(
             in_channels=config.in_channels,
             out_channels=config.out_channels,
@@ -80,8 +81,7 @@ class Poc2Mol(LightningModule):
             dropout_prob=config.dropout_prob,
             basic_module=config.basic_module,
         )
-        with_logits = not config.final_sigmoid
-        self.loss = get_loss_criterion(loss, with_logits=with_logits)
+        self.loss = get_loss_criterion(loss, with_logits=True)
         self.lr = lr
         self.weight_decay = weight_decay
         self.scheduler_config = scheduler or {}
@@ -94,6 +94,8 @@ class Poc2Mol(LightningModule):
         torch.set_float32_matmul_precision(matmul_precision)
         self.override_optimizer_on_load = override_optimizer_on_load
         self.visualise_val = visualise_val
+        self.visualise_train = visualise_train
+        self.residual_unet_config = config
 
 
     def forward(self, prot_vox, labels=None):
@@ -109,34 +111,57 @@ class Poc2Mol(LightningModule):
 
         Returns
         -------
-        Union[torch.Tensor, Dict[str, torch.Tensor]]
-            * If ``labels`` is *None* the raw network prediction tensor is
-              returned.
-            * Otherwise a dictionary is returned that contains
-                - ``pred_vox`` : the raw network prediction tensor
-                - one entry per individual loss component (e.g. ``bce`` and
-                  ``dice``)
-                - ``loss``      : the scalar total loss (sum of the individual
-                  components)
-        """
-        pred_vox = self.model(x=prot_vox)
-        if labels is None:
-            return pred_vox
+        Dict[str, torch.Tensor]
+            The returned dictionary always contains at least the following keys
 
+            ``predicted_ligand_logits``
+                The raw UNet output (logits).
+
+            ``predicted_ligand_voxels``
+                Sigmoid-activated version of the logits which can be treated as
+                probabilities/occupancies.
+
+            ``loss`` *(optional)*
+                Total loss (only present when *labels* is given).
+
+            In training mode (i.e. when *labels* are provided) the dictionary
+            additionally contains one entry per individual loss component (e.g.
+            ``bce`` and ``dice``).
+        """
+        # ------------------------------------------------------------------
+        # Forward through the UNet
+        # ------------------------------------------------------------------
+        pred_logits = self.model(x=prot_vox)  # raw network output
+
+        # Always compute the sigmoid once so that we have a consistent
+        # probability representation available.
+        pred_vox = torch.sigmoid(pred_logits)
+
+        # If no labels are provided we are in inference mode – simply return
+        # the predictions.
+        if labels is None:
+            return {
+                "predicted_ligand_logits": pred_logits,
+                "predicted_ligand_voxels": pred_vox,
+            }
+
+        # ------------------------------------------------------------------
         # Compute the per-component losses
-        loss_dict = self.loss(pred_vox, labels)
+        # ------------------------------------------------------------------
+        result = self.loss(pred_logits, labels)
+
         # Aggregate to a single scalar so that Lightning knows what to optimise
         total_loss = None
-        if isinstance(loss_dict, dict):
-            total_loss = sum(loss_dict.values())
-        else:
-            # Some criteria might already return a scalar tensor
-            total_loss = loss_dict
-            loss_dict = {"loss": total_loss}
-        # Compose the output dictionary
-        loss_dict["loss"] = total_loss
-        loss_dict["pred_vox"] = pred_vox
-        return loss_dict
+        if isinstance(result, dict):
+            total_loss = sum(result.values())
+
+        result["loss"] = total_loss
+        # Raw logits and sigmoid activations
+        result["predicted_ligand_logits"] = pred_logits
+        result["predicted_ligand_voxels"] = pred_vox
+
+
+        return result
 
     def training_step(self, batch, batch_idx):
         if "load_time" in batch:
@@ -144,12 +169,12 @@ class Poc2Mol(LightningModule):
 
         outputs = self(batch["protein"], labels=batch["ligand"])
         # ``outputs`` is a dictionary – extract what we need
-        pred_vox = outputs["pred_vox"]
+        pred_vox = outputs["predicted_ligand_voxels"]
         loss = outputs["loss"]
 
         # Log each individual loss component (except the prediction tensor)
         for k, v in outputs.items():
-            if k in {"pred_vox"}:
+            if k in {"predicted_ligand_voxels", "predicted_ligand_logits"}:
                 continue
             # Per-batch logging
             self.log(f"train/batch_{k}", v, on_step=True, on_epoch=False, prog_bar=(k=="loss"))
@@ -160,27 +185,27 @@ class Poc2Mol(LightningModule):
         self.log_channel_means(batch, pred_vox)
 
         # Visualisation
-        if batch_idx == 0:
-            outputs_for_viz = torch.sigmoid(pred_vox.detach())
+        if batch_idx == 0 and self.visualise_train:
+            outputs_for_viz = pred_vox.float().detach().cpu().numpy()
             visualise_batch(batch["ligand"], outputs_for_viz, batch["name"], save_dir=self.img_save_dir, batch=str(batch_idx))
 
         return loss
 
     def validation_step(self, batch, batch_idx):
         outputs = self(batch["protein"], labels=batch["ligand"])
-        pred_vox = outputs["pred_vox"]
+        pred_vox = outputs["predicted_ligand_voxels"]
         loss = outputs["loss"]
 
         # Log each component
         for k, v in outputs.items():
-            if k in {"pred_vox"}:
+            if k in {"predicted_ligand_voxels", "predicted_ligand_logits"}:
                 continue
             self.log(f"val/{k}", v, on_step=False, on_epoch=True, prog_bar=(k=="loss"))
 
         # Optional visualisation
         if self.visualise_val and batch_idx in [0, 50, 100]:
             save_dir = f"{self.img_save_dir}/val" if self.img_save_dir else None
-            outputs_for_viz = torch.sigmoid(pred_vox.detach())
+            outputs_for_viz = pred_vox.float().detach().cpu().numpy()
             lig, pred, names = batch["ligand"][:4], outputs_for_viz[:4], batch["name"][:4]
         
             visualise_batch(

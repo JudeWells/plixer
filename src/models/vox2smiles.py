@@ -24,7 +24,6 @@ class VoxToSmilesModel(LightningModule):
         self,
         config,
         override_optimizer_on_load: bool = False,
-        compile: bool = False,
     ) -> None:
         super().__init__()
         if "torch_dtype" not in config:
@@ -133,10 +132,10 @@ class VoxToSmilesModel(LightningModule):
     def validation_step(self, batch, batch_idx, dataloader_idx=0):
         pixel_values = batch["pixel_values"]
         labels = batch["input_ids"]
-        outputs = self(pixel_values, labels=labels)
-        loss = outputs.loss
         masked_labels = labels.clone()
         masked_labels[masked_labels == self.tokenizer.pad_token_id] = -100
+        outputs = self(pixel_values, labels=masked_labels)
+        loss = outputs.loss
         accuracy = accuracy_from_outputs(outputs, masked_labels, start_ix=1, ignore_index=-100)
         if dataloader_idx == 0:
             self.val_loss(loss)
@@ -149,7 +148,7 @@ class VoxToSmilesModel(LightningModule):
             self.val_acc_poc2mol_output(accuracy)
             self.log(f"val/poc2mol_output/accuracy", self.val_acc_poc2mol_output, on_step=False, on_epoch=True, prog_bar=True, add_dataloader_idx=False)
         if batch_idx % 100 == 0:
-            generated_smiles = self.generate_smiles(pixel_values)
+            generated_smiles = self.generate_smiles(pixel_values, max_attempts=1)
             if len(generated_smiles) > 0:
                 validity = calculate_validity(generated_smiles)
                 if dataloader_idx == 0:
@@ -308,11 +307,12 @@ class VoxToSmilesModel(LightningModule):
             self, 
             pixel_values, 
             max_length=200, 
-            max_retries=6, 
+            max_attempts=6, 
             max_token_repeats=10, 
             do_sample=False, 
             temperature=1.0
         ):
+        assert max_attempts > 0, "max_attempts must be greater than 0"
         batch_size = pixel_values.shape[0]
         results = [None] * batch_size
         best_results = [None] * batch_size
@@ -320,7 +320,7 @@ class VoxToSmilesModel(LightningModule):
         need_generation = [True] * batch_size
         attempts = [0] * batch_size
         
-        while any(need_generation) and max(attempts) < max_retries:
+        while any(need_generation) and max(attempts) < max_attempts:
             indices_to_generate = [i for i, need_gen in enumerate(need_generation) if need_gen]
             if len(indices_to_generate) < batch_size:
                 current_pixel_values = pixel_values[indices_to_generate]
@@ -337,7 +337,7 @@ class VoxToSmilesModel(LightningModule):
                 current_smiles = predicted_smiles[idx]
                 
                 # Track this attempt if it's a valid SMILES string
-                if self.is_valid_smiles(current_smiles):
+                if len(current_smiles) > 0 and self.is_valid_smiles(current_smiles):
                     # Check repetition score
                     rep_score = self.repetition_score([current_smiles])
                     

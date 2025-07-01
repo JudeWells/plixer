@@ -54,67 +54,136 @@ class CombinedProteinToSmilesModel(L.LightningModule):
         self.override_optimizer_on_load = override_optimizer_on_load
     
     def forward(
-            self, 
-            protein_voxels, 
-            labels=None, 
-            decoy_labels=None, 
-            ligand_voxels=None, 
-            sample_smiles=True,
-            predicted_ligand_voxels=None,
-            temperature=1.0,
-            ):
+        self,
+        protein_voxels: torch.Tensor = None,
+        labels: torch.Tensor = None,
+        decoy_labels: torch.Tensor = None,
+        ligand_voxels: torch.Tensor = None,
+        sample_smiles: bool = True,
+        predicted_ligand_voxels: torch.Tensor = None,
+        temperature: float = 1.0,
+    ):
+        """End-to-end forward pass.
+
+        One (and only one) source of ligand voxels must ultimately be provided:
+
+        1. *ligand_voxels* – explicit ground-truth voxels (e.g. during
+           supervised training).
+        2. *predicted_ligand_voxels* – pre-computed Poc2Mol predictions that we
+           want to re-use (e.g. when rescoring SMILES).
+        3. *protein_voxels* – if neither of the above are given, we will run
+           *poc2mol_model* on the provided protein voxels to obtain the
+           predictions on-the-fly.
+
+        The method is therefore flexible enough for both training and inference
+        scenarios.  A dictionary with the following (important) keys is
+        returned:
+
+        ``predicted_ligand_voxels``
+            Sigmoid-activated ligand voxels that will be fed into the
+            Vox2Smiles model.
+
+        ``logits`` / ``loss`` (optional)
+            Outputs of the Vox2Smiles model when *labels* are supplied.
         """
-        Forward pass through the combined model.
-        
-        Args:
-            protein_voxels: Protein voxels [batch_size, channels, x, y, z]
-            
-        Returns:
-            Dictionary containing:
-                - logits: Logits for SMILES tokens [batch_size, seq_len, vocab_size]
-                - ligand_voxels: Generated ligand voxels [batch_size, channels, x, y, z]
-        """
-        # Generate ligand voxels from protein voxels
-        if predicted_ligand_voxels is None:
+
+        result = {}
+
+        # ------------------------------------------------------------------
+        # 1) Obtain (or use provided) ligand voxels
+        # ------------------------------------------------------------------
+        poc2mol_output = None  # for bookkeeping – may stay *None*
+
+        if ligand_voxels is not None:
+            # User explicitly provided ground truth ligand voxels – bypass
+            # Poc2Mol for the forward pass but we **can** still compute the
+            # Poc2Mol loss if protein voxels are also given.
+            final_ligand_voxels = ligand_voxels
+            if protein_voxels is not None:
+                poc2mol_output = self.poc2mol_model(
+                    protein_voxels,
+                    labels=ligand_voxels,
+                )
+        elif predicted_ligand_voxels is not None:
+            # Pre-computed predictions are supplied – use as-is.
+            final_ligand_voxels = predicted_ligand_voxels
+        else:
+            # Need to run Poc2Mol to obtain predictions.
+            if protein_voxels is None:
+                raise ValueError(
+                    "Either ligand_voxels/predicted_ligand_voxels or protein_voxels must be provided."
+                )
             poc2mol_output = self.poc2mol_model(protein_voxels, labels=ligand_voxels)
-            if isinstance(poc2mol_output, dict):
-                predicted_ligand_voxels = poc2mol_output['pred_vox']
-            else:
-                predicted_ligand_voxels = poc2mol_output
-        predicted_ligand_voxels = torch.sigmoid(predicted_ligand_voxels)
-        result = {
-            "predicted_ligand_voxels": predicted_ligand_voxels,
-        }
+            
+            final_ligand_voxels = poc2mol_output["predicted_ligand_voxels"]
+
+
+        # Store Poc2Mol outputs (if any) for downstream logging/analysis.
+        if poc2mol_output is not None and isinstance(poc2mol_output, dict):
+            result.update({
+                "poc2mol_bce": poc2mol_output.get("bce", torch.tensor(0.0)).mean().item() if "bce" in poc2mol_output else None,
+                "poc2mol_dice": poc2mol_output.get("dice", torch.tensor(0.0)).mean().item() if "dice" in poc2mol_output else None,
+                "poc2mol_loss": poc2mol_output.get("loss", torch.tensor(0.0)).item() if "loss" in poc2mol_output else None,
+            })
+
+        # ------------------------------------------------------------------
+        # 2) Vox2Smiles – teacher forcing when labels are provided
+        # ------------------------------------------------------------------
         if labels is not None:
             masked_labels = labels.clone()
-            masked_labels[masked_labels == self.vox2smiles_model.tokenizer.pad_token_id] = -100
-            vox2smiles_output = self.vox2smiles_model(predicted_ligand_voxels, labels=masked_labels)
-            result['logits'] = vox2smiles_output["logits"]
-            result['loss'] = vox2smiles_output['loss']
-            result['poc2mol_bce'] = poc2mol_output['bce'].mean().item()
-            result['poc2mol_dice'] = poc2mol_output['dice'].mean().item()
-            result['poc2mol_loss'] = result['poc2mol_bce'] + result['poc2mol_dice']
-            result['smiles_teacher_forced_accuracy'] = accuracy_from_outputs(
-                vox2smiles_output, masked_labels, start_ix=1, ignore_index=-100
-            )
-            if decoy_labels is not None:  # todo remove this bloc
+            pad_id = self.vox2smiles_model.tokenizer.pad_token_id
+            masked_labels[masked_labels == pad_id] = -100
+
+            vox2smiles_output = self.vox2smiles_model(final_ligand_voxels, labels=masked_labels)
+
+            result.update({
+                "logits": vox2smiles_output["logits"],
+                "loss": vox2smiles_output["loss"],
+                "smiles_teacher_forced_accuracy": accuracy_from_outputs(
+                    vox2smiles_output,
+                    masked_labels,
+                    start_ix=1,
+                    ignore_index=-100,
+                ),
+            })
+
+            # Optional decoy scoring – kept for legacy reasons
+            if decoy_labels is not None:
                 masked_decoy_labels = decoy_labels.clone()
-                masked_decoy_labels[masked_decoy_labels == self.vox2smiles_model.tokenizer.pad_token_id] = -100
-                vox2smiles_output_decoy_loss = self.vox2smiles_model(predicted_ligand_voxels, labels=decoy_labels)['loss']
-                result['decoy_loss'] = vox2smiles_output_decoy_loss
-                result['decoy_smiles_true_label_teacher_forced_accuracy'] = accuracy_from_outputs(
-                    vox2smiles_output, masked_decoy_labels, start_ix=1, ignore_index=-100
+                masked_decoy_labels[masked_decoy_labels == pad_id] = -100
+
+                decoy_output = self.vox2smiles_model(final_ligand_voxels, labels=decoy_labels)
+                result["decoy_loss"] = decoy_output["loss"]
+                result["decoy_smiles_true_label_teacher_forced_accuracy"] = accuracy_from_outputs(
+                    vox2smiles_output,
+                    masked_decoy_labels,
+                    start_ix=1,
+                    ignore_index=-100,
                 )
-                vox2smiles_decoy_output = self.vox2smiles_model(predicted_ligand_voxels, labels=decoy_labels)
-                result['decoy_smiles_decoy_label_teacher_forced_accuracy'] = accuracy_from_outputs(
-                    vox2smiles_decoy_output, masked_decoy_labels, start_ix=1, ignore_index=-100
+                result["decoy_smiles_decoy_label_teacher_forced_accuracy"] = accuracy_from_outputs(
+                    decoy_output,
+                    masked_decoy_labels,
+                    start_ix=1,
+                    ignore_index=-100,
                 )
-    
+
+        # ------------------------------------------------------------------
+        # 3) Autoregressive generation (optional)
+        # ------------------------------------------------------------------
         if sample_smiles:
-            sampled_smiles = self.vox2smiles_model.generate_smiles(predicted_ligand_voxels, temperature=temperature)
+            sampled_smiles = self.vox2smiles_model.generate_smiles(final_ligand_voxels, temperature=temperature)
         else:
             sampled_smiles = None
-        result['sampled_smiles'] = sampled_smiles
+
+        # ------------------------------------------------------------------
+        # 4) Assemble final result dict
+        # ------------------------------------------------------------------
+        result.update({
+            "predicted_ligand_voxels": final_ligand_voxels,
+            # Legacy alias to avoid breaking older code
+            "ligand_voxels": final_ligand_voxels,
+            "sampled_smiles": sampled_smiles,
+        })
 
         return result
     
@@ -137,14 +206,17 @@ class CombinedProteinToSmilesModel(L.LightningModule):
         protein_voxels = batch["protein_voxels"]
         smiles_tokens = batch["smiles_tokens"]
         
-        # Forward pass
-        output = self(protein_voxels)
-        logits = output["logits"]
+        # Forward pass (teacher-forcing with labels)
+        output = self(
+            protein_voxels,
+            labels=smiles_tokens,
+            ligand_voxels=batch.get("ligand_voxels", None),
+            sample_smiles=False,
+        )
+
+        loss = output["loss"]
         
-        # Calculate loss
-        loss = self.vox2smiles_model.calculate_loss(logits, smiles_tokens)
-        
-        # Backward pass and optimization
+        # Backward pass and optimisation
         opt.zero_grad()
         self.manual_backward(loss)
         opt.step()
@@ -173,15 +245,19 @@ class CombinedProteinToSmilesModel(L.LightningModule):
         smiles_tokens = batch["smiles_tokens"]
         true_smiles = batch.get("smiles_strings", [])
         
-        # Forward pass
-        output = self(protein_voxels)
+        # Forward pass with labels to obtain loss + logits
+        output = self(
+            protein_voxels,
+            labels=smiles_tokens,
+            ligand_voxels=batch.get("ligand_voxels", None),
+            sample_smiles=False,
+        )
+
         logits = output["logits"]
-        ligand_voxels = output["ligand_voxels"]
-        
-        # Calculate loss
-        loss = self.vox2smiles_model.calculate_loss(logits, smiles_tokens)
-        
-        # Generate SMILES
+        ligand_voxels = output["predicted_ligand_voxels"]
+        loss = output["loss"]
+
+        # Generate SMILES (greedy)
         generated_smiles = self.vox2smiles_model.generate_smiles(ligand_voxels)
         
         # Log metrics
@@ -356,11 +432,7 @@ class CombinedProteinToSmilesModel(L.LightningModule):
         Generates SMILES strings from protein voxels.
         """
         poc2mol_output = self.poc2mol_model(protein_voxels)
-        if isinstance(poc2mol_output, dict):
-            pred_vox = poc2mol_output['pred_vox']
-        else:
-            pred_vox = poc2mol_output
-        pred_vox = torch.sigmoid(pred_vox)
+        pred_vox = poc2mol_output["predicted_ligand_voxels"]
         
         if num_samples > 1:
             # Repeat tensor for multiple samples
@@ -378,11 +450,7 @@ class CombinedProteinToSmilesModel(L.LightningModule):
         self.poc2mol_model.eval()
         self.vox2smiles_model.eval()
         poc2mol_output = self.poc2mol_model(protein_voxels)
-        if isinstance(poc2mol_output, dict):
-            pred_vox = poc2mol_output['pred_vox']
-        else:
-            pred_vox = poc2mol_output
-        pred_vox = torch.sigmoid(pred_vox)
+        pred_vox = poc2mol_output["predicted_ligand_voxels"]
 
         # 2. Canonicalize SMILES strings when possible
         processed_smiles = []

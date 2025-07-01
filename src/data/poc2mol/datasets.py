@@ -173,7 +173,7 @@ class ParquetDataset(Dataset):
         translation: float = None,
         rotate: bool = None,
         cache_size: int = 10,
-        use_cluster_member_zero: bool = False
+        use_cluster_member_zero: bool = False  # instead of random sample from cluster
     ):
         self.config = config
         self.data_path = data_path

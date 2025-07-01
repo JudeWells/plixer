@@ -139,6 +139,7 @@ def main():
                 output['predicted_ligand_voxels'], 
                 do_sample=True,
                 temperature=args.temperature,
+                max_attempts=10
             )
             generated_smiles_list.extend(generated_smiles)
     

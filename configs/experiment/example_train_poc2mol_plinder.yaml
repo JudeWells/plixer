@@ -28,6 +28,7 @@ logger:
 model:
   override_optimizer_on_load: false
   visualise_val: false
+  visualise_train: false
   config:
     in_channels: 4
     out_channels: 9

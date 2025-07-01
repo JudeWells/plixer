@@ -22,24 +22,32 @@ def get_collate_function(tokenizer):
     This function handles batching of voxelized molecules and tokenized SMILES strings.
     """
     
-    smiles_collator = DataCollatorWithPadding(tokenizer=tokenizer)
-    
-    def collate_fn(batch, smiles_collator=smiles_collator):
-        pixel_values = torch.stack([item['pixel_values'] for item in batch])
-        text_batch = {
-            'input_ids': torch.stack([item['input_ids'] for item in batch]),
-            'attention_mask': torch.stack([item['attention_mask'] for item in batch]),
-        }
-        if 'poc2mol_loss' in batch[0]:
-            text_batch['poc2mol_loss'] = torch.tensor([item['poc2mol_loss'] for item in batch])
-        text_batch = smiles_collator(text_batch)
-        smiles_str = [item['smiles_str'] for item in batch]
+    pad_token_id = tokenizer.pad_token_id
+
+    def collate_fn(batch, pad_token_id=pad_token_id):
+        """Merge a list of dataset samples into a batch and trim trailing padding.
+        """
+        pixel_values = torch.stack([item["pixel_values"] for item in batch])  # (B, C, D, H, W)
+        input_ids = torch.stack([item["input_ids"] for item in batch])        # (B, L)
+        attention_mask = torch.stack([item["attention_mask"] for item in batch])  # (B, L)
+
+        poc2mol_loss = None
+        if "poc2mol_loss" in batch[0]:
+            poc2mol_loss = torch.tensor([item["poc2mol_loss"] for item in batch])
+        all_pad_positions = (input_ids == pad_token_id).all(dim=0)  # (L,)
+        if torch.any(all_pad_positions):
+            trim_len = torch.where(all_pad_positions)[0][0].item()
+            input_ids = input_ids[:, :trim_len]
+            attention_mask = attention_mask[:, :trim_len]
+
+        smiles_str = [item["smiles_str"] for item in batch]
+
         return {
-            'pixel_values': pixel_values,
-            'input_ids': text_batch['input_ids'],
-            'attention_mask': text_batch['attention_mask'],
-            'smiles_str': smiles_str,
-            'poc2mol_loss': text_batch.get('poc2mol_loss', None)
+            "pixel_values": pixel_values,
+            "input_ids": input_ids,
+            "attention_mask": attention_mask,
+            "smiles_str": smiles_str,
+            "poc2mol_loss": poc2mol_loss,
         }
     
     return collate_fn
@@ -338,10 +346,7 @@ class Poc2MolOutputDataset(Dataset):
                 protein_voxel.unsqueeze(0),
                 labels=ground_truth_ligand_voxel.unsqueeze(0)
             )
-            loss = outputs['bce'] + outputs['dice']
-            predicted_ligand_voxel = outputs['pred_vox']
-            
-            predicted_ligand_voxel = torch.sigmoid(predicted_ligand_voxel.squeeze(0))
+            predicted_ligand_voxel = outputs['predicted_ligand_voxels'].squeeze(0)
 
 
         smiles_str = self.tokenizer.bos_token + smiles_str + self.tokenizer.eos_token
@@ -361,7 +366,7 @@ class Poc2MolOutputDataset(Dataset):
             "input_ids": smiles["input_ids"].squeeze(),
             "attention_mask": smiles["attention_mask"].squeeze(),
             "smiles_str": smiles_str,
-            "poc2mol_loss": loss,
+            "poc2mol_loss": outputs['loss'].item(),
         }
 
 
@@ -374,12 +379,12 @@ class CombinedDataset(Dataset):
         self,
         poc2mol_output_dataset,
         vox2smiles_dataset,
-        ratio=0.5, # probability of poc2mol
+        prob_poc2mol=0.5, # probability of poc2mol
         max_poc2mol_loss=1.2, # worst loss tolerated to train on poc2mol
     ):
         self.poc2mol_output_dataset = poc2mol_output_dataset
         self.vox2smiles_dataset = vox2smiles_dataset
-        self.ratio = ratio
+        self.prob_poc2mol = prob_poc2mol
         self.max_poc2mol_loss = max_poc2mol_loss
         # Calculate the number of samples from each dataset
         self.n_poc2mol = len(poc2mol_output_dataset)
@@ -400,10 +405,9 @@ class CombinedDataset(Dataset):
     def __getitem__(self, idx):
         """
         Get a sample from either the Poc2Mol output dataset or the Vox2Smiles dataset.
-        The probability of selecting from each dataset is proportional to the ratio.
         """
         # Determine which dataset to sample from
-        if np.random.random() < self.ratio:
+        if np.random.random() < self.prob_poc2mol:
             # Sample from Poc2Mol output dataset
             idx_poc2mol = idx % self.n_poc2mol
             result = self.poc2mol_output_dataset[idx_poc2mol]

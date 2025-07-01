@@ -141,7 +141,7 @@ def main():
     combined_dataset = CombinedDataset(
         poc2mol_output_dataset=poc2mol_output_dataset,
         vox2smiles_dataset=vox2smiles_data_module.train_dataset,
-        ratio=args.ratio,
+        prob_poc2mol=args.ratio,
     )
     
     # Create data loaders
