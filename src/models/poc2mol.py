@@ -47,8 +47,8 @@ class ResUnetConfig:
 class Poc2Mol(LightningModule):
     def __init__(
         self,
-        loss,
         config: ResUnetConfig,
+        loss="BCEDiceLoss",
         lr: float = 1e-4,
         weight_decay: float = 0.0,
         scheduler: Optional[Dict[str, Any]] = None,

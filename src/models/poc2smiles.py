@@ -77,10 +77,10 @@ class CombinedProteinToSmilesModel(L.LightningModule):
         # Generate ligand voxels from protein voxels
         if predicted_ligand_voxels is None:
             poc2mol_output = self.poc2mol_model(protein_voxels, labels=ligand_voxels)
-        if isinstance(poc2mol_output, dict):
-            predicted_ligand_voxels = poc2mol_output['pred_vox']
-        else:
-            predicted_ligand_voxels = poc2mol_output
+            if isinstance(poc2mol_output, dict):
+                predicted_ligand_voxels = poc2mol_output['pred_vox']
+            else:
+                predicted_ligand_voxels = poc2mol_output
         predicted_ligand_voxels = torch.sigmoid(predicted_ligand_voxels)
         result = {
             "predicted_ligand_voxels": predicted_ligand_voxels,

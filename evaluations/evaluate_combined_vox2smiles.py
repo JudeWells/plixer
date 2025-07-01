@@ -482,7 +482,7 @@ def compute_all_decoy_similarity_enrichment_factor(results_df, threshold=0.3):
 def main():
     args = parse_args()
     test_df_paths = [
-        ('chrono_', f'{args.output_dir}/combined_model_results_backup.csv'),
+        # ('chrono_', f'{args.output_dir}/combined_model_results_backup.csv'),
         ('plinder_', f'{args.output_dir}/plinder_test_split_results.csv'),
         ('seq_sim_', f'{args.output_dir}/seq_sim_test_split_results.csv'),
         
@@ -513,12 +513,12 @@ def main():
             generate_plots_from_results_df(plinder_test_split, os.path.join(args.output_dir, "plinder"), vis_deciles=False, similarity_df=similarity_df)
             return
 
-        config = get_config_from_cpt_path(args.ckpt_path)
+        config = get_config_from_cpt_path(args.vox2smiles_ckpt_path)
         device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         combined_model = build_combined_model_from_config(
             config=config, 
-            vox2smiles_ckpt_path=args.ckpt_path,
-            poc2mol_ckpt_path=args.ckpt_path,
+            vox2smiles_ckpt_path=args.vox2smiles_ckpt_path,
+            poc2mol_ckpt_path=args.poc2mol_ckpt_path,
             dtype=eval(args.dtype),
             device=device
         )
