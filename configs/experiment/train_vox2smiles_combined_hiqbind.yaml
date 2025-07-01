@@ -6,7 +6,7 @@ defaults:
   - override /model: vox2smiles
   - override /logger: wandb.yaml
 
-task_name: "vox2smilesZincAndPoc2MolOutputsHiqBind"
+task_name: "vox2smilesZincAndPoc2MolOutputsHiqBind_resume"
 tags: ["combined_data"]
 train: True
 test: True
@@ -31,6 +31,7 @@ data:
 
 model:
   override_optimizer_on_load: false
+  visualise_val: false
   config:
     lr: 5e-5
     scheduler:

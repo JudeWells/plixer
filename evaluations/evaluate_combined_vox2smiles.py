@@ -130,23 +130,29 @@ def build_pdb_test_dataloader(
     return DataLoader(dataset, batch_size=1, shuffle=False)
 
 def add_smiles_to_batch(batch: dict, tokenizer: PreTrainedTokenizerFast):
-    extra_tokens_per_smiles = 2
-    max_smiles = max([len(smi) for smi in batch['smiles']])
-    max_smiles += extra_tokens_per_smiles
     for i, smi in enumerate(batch['smiles']):
         if not smi.startswith(tokenizer.bos_token):
             batch['smiles'][i] = tokenizer.bos_token + tokenizer.bos_token + smi
         if not smi.endswith(tokenizer.eos_token):
             batch['smiles'][i] = batch['smiles'][i] + tokenizer.eos_token
-        tokenized = tokenizer(
-            batch['smiles'],
-            padding='max_length',
-            max_length=max_smiles,
-            truncation=True,
-            return_tensors="pt"
-        )
-        device  = batch['protein'].device
-        tokenized = {k: v.to(device) for k, v in tokenized.items()}
+        
+    max_smiles = max([
+        len(tokenizer.tokenize(
+            smi,
+            padding=False,
+            truncation=False,
+            )) for smi in batch['smiles']
+        ])
+    
+    tokenized = tokenizer(
+        batch['smiles'],
+        padding='max_length',
+        max_length=max_smiles,
+        truncation=True,
+        return_tensors="pt"
+    )
+    device  = batch['protein'].device
+    tokenized = {k: v.to(device) for k, v in tokenized.items()}
     batch.update(tokenized)
     return batch
 
@@ -217,14 +223,15 @@ def evaluate_combined_model(
             continue
         if 'smiles' in batch:
             batch = add_smiles_to_batch(batch, tokenizer)
-        # Get the model output
+        # Forward pass to obtain Poc2Mol prediction + loss on the *true* SMILES
         result = combined_model.forward(
-            batch['protein'], 
-            batch['input_ids'], 
-            decoy_labels, 
-            ligand_voxels=batch['ligand']
-            )
-        decoy_labels = batch['input_ids'] # use previous batch as decoy labels
+            protein_voxels=batch['protein'],
+            labels=batch['input_ids'],
+            ligand_voxels=batch['ligand'],
+            sample_smiles=False,
+        )
+
+
         if save_voxels and not skip_visualisation:
             assert len(batch['ligand']) == 1
             os.makedirs(f'{output_dir}/voxels', exist_ok=True)
@@ -280,9 +287,7 @@ def evaluate_combined_model(
             {
                 'sampled_smiles': sampled_smiles,
                 'loss': result['loss'].item(),
-                'decoy_loss': result['decoy_loss'].item() if 'decoy_loss' in result else None,
                 'log_likelihood': -result['loss'].item(),
-                'decoy_log_likelihood': -result['decoy_loss'].item() if 'decoy_loss' in result else None,
                 'name': batch['name'][0],
                 'smiles': batch['smiles'][0].replace("[BOS]", "").replace("[EOS]", ""),
                 'valid_smiles': valid_smiles,
@@ -293,8 +298,7 @@ def evaluate_combined_model(
                 'poc2mol_dice': result['poc2mol_dice'],
                 'poc2mol_loss': result['poc2mol_loss'],
                 'smiles_teacher_forced_accuracy': result['smiles_teacher_forced_accuracy'].item(),
-                'decoy_smiles_true_label_teacher_forced_accuracy': result['decoy_smiles_true_label_teacher_forced_accuracy'].item() if 'decoy_smiles_true_label_teacher_forced_accuracy' in result else None,
-                'decoy_smiles_decoy_label_teacher_forced_accuracy': result['decoy_smiles_decoy_label_teacher_forced_accuracy'].item() if 'decoy_smiles_decoy_label_teacher_forced_accuracy' in result else None
+                
             }
         )
         df = pd.DataFrame(result_rows)
@@ -354,7 +358,7 @@ def all_decoy_smiles_likelihood_scoring(
         result = combined_model.forward(
                 protein_voxels=batch['protein'], 
                 labels=batch['input_ids'], 
-                ligand_voxels=batch['ligand'],
+                ligand_voxels=None,
                 sample_smiles=False,
                 )
         likelihood = result['loss'].item()*-1
@@ -370,13 +374,10 @@ def all_decoy_smiles_likelihood_scoring(
             batch['smiles'] = [decoy_smiles]
             batch = add_smiles_to_batch(batch, tokenizer)
         # Get the model output
-            decoy_result = combined_model.forward(
-                protein_voxels=batch['protein'], 
-                labels=batch['input_ids'], 
-                ligand_voxels=batch['ligand'],
-                sample_smiles=False,
-                predicted_ligand_voxels=predicted_ligand_voxels,
-                )
+            decoy_result = combined_model.compute_smiles_metrics(
+                ligand_voxels=predicted_ligand_voxels,
+                labels=batch['input_ids'],
+            )
             decoy_likelihood = decoy_result['loss'].item()*-1
             decoy_token_accuracy = decoy_result['smiles_teacher_forced_accuracy'].item()
             likelihoods.append({
@@ -425,7 +426,7 @@ def calculate_enrichment_factor(df, target_col="tanimoto_similarity", target_thr
 def get_plinder_test_split(similarity_df, results_df):
     train_dataset = pd.read_csv("../hiqbind/plixer_train_data.csv")
     plinder_split_df = pd.read_parquet('/mnt/disk2/plinder/2024-06/v2/splits/split.parquet')
-    results_df['pdb_id'] = results_df['name'].apply(lambda x: x.split("_")[0])
+    results_df['pdb_id'] = results_df['system_id'].apply(lambda x: x.split("_")[0])
     plinder_split_df['pdb_id'] = plinder_split_df['system_id'].apply(lambda x: x.split("_")[0])
     all_train_clusters = []
     if 'plinder_clusters' not in train_dataset.columns:
@@ -482,9 +483,9 @@ def compute_all_decoy_similarity_enrichment_factor(results_df, threshold=0.3):
 def main():
     args = parse_args()
     test_df_paths = [
-        # ('chrono_', f'{args.output_dir}/combined_model_results_backup.csv'),
-        ('plinder_', f'{args.output_dir}/plinder_test_split_results.csv'),
-        ('seq_sim_', f'{args.output_dir}/seq_sim_test_split_results.csv'),
+        # ('plinder_', 'data/test_set_plinder_split.csv'),
+        ('seq_sim_', 'data/test_set_seq_sim_split.csv'),
+        ('chrono_', 'data/test_set_chronological_split.csv'),
         
     ]
     for split_name, test_df_path in test_df_paths:
@@ -498,7 +499,7 @@ def main():
                 |(similarity_df.max_protein_similarity.isna())
                 ].system_id.values
             plinder_test_split = get_plinder_test_split(similarity_df, results_df).copy()
-            results_df_sequence = results_df[results_df['name'].isin(sequence_split_system_ids)].copy()
+            results_df_sequence = results_df[results_df['system_id'].isin(sequence_split_system_ids)].copy()
             print("\nFull test set:")
             compute_all_decoy_similarity_enrichment_factor(results_df, threshold=0.3)
             metrics = summarize_results(results_df, output_dir=args.output_dir)
@@ -531,7 +532,7 @@ def main():
                 complex_dataset_config, 
                 args.dtype,
                 args.pdb_dir,
-                system_ids=list(pd.read_csv(test_df_path)['name'].values)
+                system_ids=list(pd.read_csv(test_df_path)['system_id'].values)
             )
         else:
             test_dataloader = build_pdb_test_dataloader(

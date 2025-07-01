@@ -90,7 +90,7 @@ class Vox2SmilesDataModule(LightningDataModule):
         """Get the validation data loader."""
         loaders = [ DataLoader(
             self.val_dataset,
-            batch_size=self.config.batch_size,
+            batch_size=self.config.val_batch_size,
             shuffle=False,
             num_workers=self.num_workers,
             collate_fn=self.collate_fn,
@@ -101,7 +101,7 @@ class Vox2SmilesDataModule(LightningDataModule):
         if self.secondary_val_dataset_provided is not None:
             loaders.append(DataLoader(
                 self.secondary_val_dataset_provided,
-                batch_size=self.config.batch_size,
+                batch_size=self.config.secondary_val_batch_size,
                 shuffle=False,
                 num_workers=self.num_workers,
                 collate_fn=self.collate_fn,

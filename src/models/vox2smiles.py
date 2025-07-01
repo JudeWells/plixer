@@ -24,6 +24,8 @@ class VoxToSmilesModel(LightningModule):
         self,
         config,
         override_optimizer_on_load: bool = False,
+        visualise_val: bool = True,
+        n_samples_for_validity_testing: int = 20,
     ) -> None:
         super().__init__()
         if "torch_dtype" not in config:
@@ -86,7 +88,9 @@ class VoxToSmilesModel(LightningModule):
         self.train_poc2mol_sample_counter = 0
         self.val_validity = MeanMetric()
         self.val_validity_poc2mol_output = MeanMetric()
-    
+        self.visualise_val = visualise_val
+        self.n_samples_for_validity_testing = n_samples_for_validity_testing
+
     def forward(self, pixel_values, labels=None):
         if labels is None:
             raise ValueError("Labels are required for Vox2Smiles forward method.")
@@ -147,31 +151,26 @@ class VoxToSmilesModel(LightningModule):
             self.log(f"val/poc2mol_output/loss", self.val_loss_poc2mol_output, on_step=False, on_epoch=True, prog_bar=True, add_dataloader_idx=False)
             self.val_acc_poc2mol_output(accuracy)
             self.log(f"val/poc2mol_output/accuracy", self.val_acc_poc2mol_output, on_step=False, on_epoch=True, prog_bar=True, add_dataloader_idx=False)
-        if batch_idx % 100 == 0:
-            generated_smiles = self.generate_smiles(pixel_values, max_attempts=1)
+        if batch_idx == 0 or batch_idx * len(batch['pixel_values']) < self.n_samples_for_validity_testing:
+            generated_smiles = self.generate_smiles(pixel_values[:self.n_samples_for_validity_testing], max_attempts=1)
             if len(generated_smiles) > 0:
                 validity = calculate_validity(generated_smiles)
                 if dataloader_idx == 0:
+                    logging_key = "val/validity"
                     self.val_validity(validity)
-                    self.log(
-                        f"val/validity",
-                        self.val_validity,
-                        on_step=False,
-                        on_epoch=True,
-                        add_dataloader_idx=False,
-                        batch_size=len(generated_smiles)
-                    )
+
                 else:
+                    logging_key = "val/poc2mol_output/validity"
                     self.val_validity_poc2mol_output(validity)
-                    self.log(
-                        f"val/poc2mol_output/validity",
-                        self.val_validity_poc2mol_output,
-                        on_step=False,
-                        on_epoch=True,
-                        add_dataloader_idx=False,
-                        batch_size=len(generated_smiles)
-                    )
-        if batch_idx < 3:
+                self.log(
+                    logging_key,
+                    self.val_validity_poc2mol_output,
+                    on_step=False,
+                    on_epoch=True,
+                    add_dataloader_idx=False,
+                    batch_size=len(generated_smiles)
+                )
+        if batch_idx < 3 and self.visualise_val:
             try:
                 if dataloader_idx == 0:
                     sample_str = ""
@@ -289,7 +288,7 @@ class VoxToSmilesModel(LightningModule):
         except:
             return False
     
-    def repetition_score(self, smiles):
+    def repetition_count(self, smiles):
         max_reps = 0
         current_reps = 0
         for sm in smiles:
@@ -339,15 +338,15 @@ class VoxToSmilesModel(LightningModule):
                 # Track this attempt if it's a valid SMILES string
                 if len(current_smiles) > 0 and self.is_valid_smiles(current_smiles):
                     # Check repetition score
-                    rep_score = self.repetition_score([current_smiles])
+                    rep_count = self.repetition_count([current_smiles])
                     
                     # Update best result if this has a lower repetition score
-                    if rep_score < min_repetition_scores[gen_idx]:
+                    if rep_count < min_repetition_scores[gen_idx]:
                         best_results[gen_idx] = current_smiles
-                        min_repetition_scores[gen_idx] = rep_score
+                        min_repetition_scores[gen_idx] = rep_count
                     
                     # If under threshold, consider this a success
-                    if rep_score <= max_token_repeats:
+                    if rep_count <= max_token_repeats:
                         results[gen_idx] = current_smiles
                         need_generation[gen_idx] = False
                     

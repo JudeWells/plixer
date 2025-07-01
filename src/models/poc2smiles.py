@@ -57,34 +57,26 @@ class CombinedProteinToSmilesModel(L.LightningModule):
         self,
         protein_voxels: torch.Tensor = None,
         labels: torch.Tensor = None,
-        decoy_labels: torch.Tensor = None,
         ligand_voxels: torch.Tensor = None,
         sample_smiles: bool = True,
-        predicted_ligand_voxels: torch.Tensor = None,
         temperature: float = 1.0,
     ):
         """End-to-end forward pass.
 
-        One (and only one) source of ligand voxels must ultimately be provided:
-
+        Exactly one source of ligand voxels must ultimately be provided:
         1. *ligand_voxels* – explicit ground-truth voxels (e.g. during
            supervised training).
-        2. *predicted_ligand_voxels* – pre-computed Poc2Mol predictions that we
-           want to re-use (e.g. when rescoring SMILES).
-        3. *protein_voxels* – if neither of the above are given, we will run
+        2. *protein_voxels* – if *ligand_voxels* are **not** given we will run
            *poc2mol_model* on the provided protein voxels to obtain the
            predictions on-the-fly.
 
         The method is therefore flexible enough for both training and inference
         scenarios.  A dictionary with the following (important) keys is
         returned:
-
-        ``predicted_ligand_voxels``
-            Sigmoid-activated ligand voxels that will be fed into the
-            Vox2Smiles model.
-
-        ``logits`` / ``loss`` (optional)
-            Outputs of the Vox2Smiles model when *labels* are supplied.
+            ``predicted_ligand_voxels`` – Sigmoid-activated ligand voxels fed
+            into the Vox2Smiles model.
+            ``logits`` / ``loss`` (optional) – Outputs of the Vox2Smiles model
+            when *labels* are supplied.
         """
 
         result = {}
@@ -94,29 +86,21 @@ class CombinedProteinToSmilesModel(L.LightningModule):
         # ------------------------------------------------------------------
         poc2mol_output = None  # for bookkeeping – may stay *None*
 
+        assert ligand_voxels is not None or protein_voxels is not None, (
+            "Either ligand_voxels or protein_voxels must be provided."
+        )
+
         if ligand_voxels is not None:
-            # User explicitly provided ground truth ligand voxels – bypass
-            # Poc2Mol for the forward pass but we **can** still compute the
+            # User explicitly provided ground-truth ligand voxels – bypass
+            # Poc2Mol for the forward pass but **optionally** compute the
             # Poc2Mol loss if protein voxels are also given.
             final_ligand_voxels = ligand_voxels
             if protein_voxels is not None:
-                poc2mol_output = self.poc2mol_model(
-                    protein_voxels,
-                    labels=ligand_voxels,
-                )
-        elif predicted_ligand_voxels is not None:
-            # Pre-computed predictions are supplied – use as-is.
-            final_ligand_voxels = predicted_ligand_voxels
+                poc2mol_output = self.poc2mol_model(protein_voxels, labels=ligand_voxels)
         else:
             # Need to run Poc2Mol to obtain predictions.
-            if protein_voxels is None:
-                raise ValueError(
-                    "Either ligand_voxels/predicted_ligand_voxels or protein_voxels must be provided."
-                )
             poc2mol_output = self.poc2mol_model(protein_voxels, labels=ligand_voxels)
-            
             final_ligand_voxels = poc2mol_output["predicted_ligand_voxels"]
-
 
         # Store Poc2Mol outputs (if any) for downstream logging/analysis.
         if poc2mol_output is not None and isinstance(poc2mol_output, dict):
@@ -130,42 +114,11 @@ class CombinedProteinToSmilesModel(L.LightningModule):
         # 2) Vox2Smiles – teacher forcing when labels are provided
         # ------------------------------------------------------------------
         if labels is not None:
-            masked_labels = labels.clone()
-            pad_id = self.vox2smiles_model.tokenizer.pad_token_id
-            masked_labels[masked_labels == pad_id] = -100
-
-            vox2smiles_output = self.vox2smiles_model(final_ligand_voxels, labels=masked_labels)
-
-            result.update({
-                "logits": vox2smiles_output["logits"],
-                "loss": vox2smiles_output["loss"],
-                "smiles_teacher_forced_accuracy": accuracy_from_outputs(
-                    vox2smiles_output,
-                    masked_labels,
-                    start_ix=1,
-                    ignore_index=-100,
-                ),
-            })
-
-            # Optional decoy scoring – kept for legacy reasons
-            if decoy_labels is not None:
-                masked_decoy_labels = decoy_labels.clone()
-                masked_decoy_labels[masked_decoy_labels == pad_id] = -100
-
-                decoy_output = self.vox2smiles_model(final_ligand_voxels, labels=decoy_labels)
-                result["decoy_loss"] = decoy_output["loss"]
-                result["decoy_smiles_true_label_teacher_forced_accuracy"] = accuracy_from_outputs(
-                    vox2smiles_output,
-                    masked_decoy_labels,
-                    start_ix=1,
-                    ignore_index=-100,
-                )
-                result["decoy_smiles_decoy_label_teacher_forced_accuracy"] = accuracy_from_outputs(
-                    decoy_output,
-                    masked_decoy_labels,
-                    start_ix=1,
-                    ignore_index=-100,
-                )
+            vox2smiles_result = self.compute_smiles_metrics(
+                ligand_voxels=final_ligand_voxels,
+                labels=labels,
+            )
+            result.update(vox2smiles_result)
 
         # ------------------------------------------------------------------
         # 3) Autoregressive generation (optional)
@@ -184,6 +137,43 @@ class CombinedProteinToSmilesModel(L.LightningModule):
             "ligand_voxels": final_ligand_voxels,
             "sampled_smiles": sampled_smiles,
         })
+
+        return result
+
+    def compute_smiles_metrics(
+        self,
+        ligand_voxels: torch.Tensor,
+        labels: torch.Tensor,
+    ):
+        """Compute loss / logits / accuracy for given *ligand_voxels* and *labels*.
+
+        This helper avoids re-running Poc2Mol when the ligand voxels are already
+        available (e.g. during rescoring of many SMILES against the same
+        pocket-specific ligand voxels).
+        """
+        result: dict = {}
+
+        # Ensure tensors are on the same device
+        device = ligand_voxels.device
+        labels = labels.to(device)
+        pad_id = self.vox2smiles_model.tokenizer.pad_token_id
+
+        masked_labels = labels.clone()
+        masked_labels[masked_labels == pad_id] = -100
+
+        vox2smiles_output = self.vox2smiles_model(ligand_voxels, labels=masked_labels)
+
+        result.update({
+            "logits": vox2smiles_output["logits"],
+            "loss": vox2smiles_output["loss"],
+            "smiles_teacher_forced_accuracy": accuracy_from_outputs(
+                vox2smiles_output,
+                masked_labels,
+                start_ix=1,
+                ignore_index=-100,
+            ),
+        })
+
 
         return result
     

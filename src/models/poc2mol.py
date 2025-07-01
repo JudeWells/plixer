@@ -61,8 +61,8 @@ class Poc2Mol(LightningModule):
         matmul_precision: str = 'high',
         compile: bool = False,
         override_optimizer_on_load: bool = False,
-        visualise_val: bool = True,
         visualise_train: bool = True,
+        visualise_val: bool = True,
     ) -> None:
         super().__init__()
         self.save_hyperparameters(logger=False)

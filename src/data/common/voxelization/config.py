@@ -86,6 +86,8 @@ class Vox2SmilesDataConfig(VoxelizationConfig):
     Extends the base VoxelizationConfig with Vox2Smiles-specific parameters.
     """
     batch_size: int = 24
+    val_batch_size: int = 100
+    secondary_val_batch_size: int = 10
     max_smiles_len: int = 200
     
     # For Vox2Smiles, we typically don't need protein channels
