@@ -5,3 +5,12 @@ config:
   batch_size: 32
   max_smiles_len: 200
   has_protein: false
+
+# Validation datasets
+val_datasets:
+  default_val:
+    _target_: src.data.vox2smiles.datasets.Vox2SmilesDataset
+    data_path: "${data.data_path}/val_5k"
+    random_rotation: false
+    random_translation: 0.0
+    config: ${data.config}

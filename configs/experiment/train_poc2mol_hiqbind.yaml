@@ -13,7 +13,7 @@ tags:
   - "hiqbind"
   - "lr${model.lr}" 
   - "acc${trainer.accumulate_grad_batches}"
-  - "batch${data.batch_size}"
+  - "batch${data.config.batch_size}"
   - "wd${model.weight_decay}"
 
 train: True

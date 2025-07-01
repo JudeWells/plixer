@@ -19,9 +19,8 @@ class Vox2SmilesDataModule(LightningDataModule):
         val_split: float = 0.1,
         test_split: float = 0.1,
         train_dataset = None,
-        val_dataset = None,
+        val_datasets = None,  # New unified mapping of validation datasets
         test_dataset = None,
-        secondary_val_dataset = None,
         num_workers = 0
     ):
         super().__init__()
@@ -31,9 +30,20 @@ class Vox2SmilesDataModule(LightningDataModule):
         self.test_split = test_split
         
         self.train_dataset_provided = train_dataset
-        self.val_dataset_provided = val_dataset
+        self.val_datasets_provided = {}
+
+        if val_datasets is not None:
+            self.val_datasets_provided.update(val_datasets)
+
+        # Handle legacy single val_dataset & secondary_val_dataset if passed via kwargs
+        legacy_val_dataset = locals().get('val_dataset', None)
+        if legacy_val_dataset is not None:
+            self.val_datasets_provided['val'] = legacy_val_dataset
+        legacy_secondary = locals().get('secondary_val_dataset', None)
+        if legacy_secondary is not None:
+            self.val_datasets_provided['secondary'] = legacy_secondary
+
         self.test_dataset_provided = test_dataset
-        self.secondary_val_dataset_provided = secondary_val_dataset
         self.tokenizer = build_smiles_tokenizer()
         self.collate_fn = get_collate_function(self.tokenizer)
         self.num_workers = num_workers
@@ -53,15 +63,19 @@ class Vox2SmilesDataModule(LightningDataModule):
                     random_translation=self.config.random_translation
                 )
             
-            if self.val_dataset_provided is not None:
-                self.val_dataset = self.val_dataset_provided
+            # ---------------- Validation datasets ----------------
+            if self.val_datasets_provided:
+                # User supplied mapping of datasets; use directly
+                self.val_datasets = self.val_datasets_provided
             else:
-                self.val_dataset = Vox2SmilesDataset(
+                # Legacy behaviour – single default validation dataset
+                default_val_ds = Vox2SmilesDataset(
                     data_path=f"{self.data_path}/val_5k",
                     config=self.config,
-                    random_rotation=False,  # No rotation for validation
-                    random_translation=0.0   # No translation for validation
+                    random_rotation=False,
+                    random_translation=0.0,
                 )
+                self.val_datasets = {"default_val": default_val_ds}
         
         if stage == 'test' or stage is None:
             if self.test_dataset_provided is not None:
@@ -88,26 +102,24 @@ class Vox2SmilesDataModule(LightningDataModule):
 
     def val_dataloader(self):
         """Get the validation data loader."""
-        loaders = [ DataLoader(
-            self.val_dataset,
-            batch_size=self.config.val_batch_size,
-            shuffle=False,
-            num_workers=self.num_workers,
-            collate_fn=self.collate_fn,
-            pin_memory=False,
-                persistent_workers=True if self.num_workers > 0 else False,
+        loaders = []
+        for name, dataset in self.val_datasets.items():
+            # Determine batch size – prefer dataset.config.val_batch_size if present
+            batch_size = getattr(self.config, 'val_batch_size', getattr(self.config, 'batch_size', 32))
+            # Allow dataset to override via attribute `batch_size`
+            if hasattr(dataset, 'config') and hasattr(dataset.config, 'val_batch_size'):
+                batch_size = dataset.config.val_batch_size
+            loaders.append(
+                DataLoader(
+                    dataset,
+                    batch_size=batch_size,
+                    shuffle=False,
+                    num_workers=self.num_workers,
+                    collate_fn=self.collate_fn,
+                    pin_memory=False,
+                    persistent_workers=True if self.num_workers > 0 else False,
+                )
             )
-        ]
-        if self.secondary_val_dataset_provided is not None:
-            loaders.append(DataLoader(
-                self.secondary_val_dataset_provided,
-                batch_size=self.config.secondary_val_batch_size,
-                shuffle=False,
-                num_workers=self.num_workers,
-                collate_fn=self.collate_fn,
-                pin_memory=False,
-                persistent_workers=True if self.num_workers > 0 else False,
-            ))
         return loaders
 
     def test_dataloader(self):

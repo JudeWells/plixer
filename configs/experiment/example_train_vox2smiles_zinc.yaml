@@ -36,12 +36,13 @@ data:
     random_rotation: true
     random_translation: 6.0
     config: ${data.config}
-  val_dataset:
-    _target_: src.data.vox2smiles.datasets.ParquetVox2SmilesDataset
-    data_path: example_data/zinc_example
-    random_rotation: true
-    random_translation: 6.0
-    config: ${data.config}
+  val_datasets:
+    default_val:
+      _target_: src.data.vox2smiles.datasets.ParquetVox2SmilesDataset
+      data_path: example_data/zinc_example
+      random_rotation: true
+      random_translation: 6.0
+      config: ${data.config}
   test_dataset:
     _target_: src.data.vox2smiles.datasets.ParquetVox2SmilesDataset
     data_path: example_data/zinc_example
