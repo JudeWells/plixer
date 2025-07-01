@@ -25,7 +25,7 @@ class VoxToSmilesModel(LightningModule):
         config,
         override_optimizer_on_load: bool = False,
         visualise_val: bool = True,
-        n_samples_for_validity_testing: int = 20,
+        n_samples_for_validity_testing: int = 30,
     ) -> None:
         super().__init__()
         if "torch_dtype" not in config:
@@ -155,21 +155,27 @@ class VoxToSmilesModel(LightningModule):
             generated_smiles = self.generate_smiles(pixel_values[:self.n_samples_for_validity_testing], max_attempts=1)
             if len(generated_smiles) > 0:
                 validity = calculate_validity(generated_smiles)
-                if dataloader_idx == 0:
-                    logging_key = "val/validity"
-                    self.val_validity(validity)
-
-                else:
-                    logging_key = "val/poc2mol_output/validity"
-                    self.val_validity_poc2mol_output(validity)
-                self.log(
-                    logging_key,
-                    self.val_validity_poc2mol_output,
-                    on_step=False,
-                    on_epoch=True,
-                    add_dataloader_idx=False,
-                    batch_size=len(generated_smiles)
-                )
+                if isinstance(validity, (int, float)) and not np.isnan(validity):
+                    if dataloader_idx == 0:
+                        self.val_validity(validity)
+                        self.log(
+                            "val/validity",
+                            self.val_validity,
+                            on_step=False,
+                            on_epoch=True,
+                            add_dataloader_idx=False,
+                            batch_size=len(generated_smiles)
+                        )
+                    else:
+                        self.val_validity_poc2mol_output(validity)
+                        self.log(
+                            "val/poc2mol_output/validity",
+                            self.val_validity_poc2mol_output,
+                            on_step=False,
+                            on_epoch=True,
+                            add_dataloader_idx=False,
+                            batch_size=len(generated_smiles)
+                        )
         if batch_idx < 3 and self.visualise_val:
             try:
                 if dataloader_idx == 0:
