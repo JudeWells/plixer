@@ -203,7 +203,7 @@ def accuracy_from_outputs(
     Returns:
         The accuracy of the target sequence.
     """
-    logits = model_outputs.logits
+    logits = model_outputs.logits.detach()
     # Shift so that tokens < n predict n
     shift_logits = logits[..., start_ix:, :].contiguous()  # b, L, V
     shift_labels = input_ids[..., start_ix:].contiguous()  # b, L
