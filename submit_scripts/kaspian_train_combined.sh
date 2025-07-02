@@ -1,7 +1,7 @@
 # echo the contents of this file
 cat $0
 
-cd /mnt/disk2/VoxelDiffOuter/VoxelDiff2
+cd /mnt/disk2/VoxelDiffOuter/plixer
 export PYTHONPATH=$(pwd):$PYTHONPATH
 source ../VenvVoxelDiff/bin/activate
 # run the script

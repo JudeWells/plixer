@@ -13,7 +13,7 @@
 #$ -N poc2molOptuna
 #$ -cwd                   # Use current working directory
 #$ -t 1-16                # Number of parallel Optuna workers (array size)
-#$ -o /SAN/orengolab/nsp13/VoxelDiffOuter/VoxelDiff2/qsub_logs/
+#$ -o /SAN/orengolab/nsp13/VoxelDiffOuter/plixer/qsub_logs/
 #$ -j y                   # Merge stdout & stderr
 
 # Diagnostic info
@@ -26,7 +26,7 @@ echo "### Starting Optuna worker $SGE_TASK_ID at $(date) ###"
 conda activate vox
 
 # Make sure PYTHONPATH points to project root to allow local imports
-ROOT_DIR='/SAN/orengolab/nsp13/VoxelDiffOuter/VoxelDiff2'
+ROOT_DIR='/SAN/orengolab/nsp13/VoxelDiffOuter/plixer'
 export PYTHONPATH="$ROOT_DIR:$PYTHONPATH"
 cd "$ROOT_DIR"
 

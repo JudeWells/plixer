@@ -16,7 +16,7 @@
 1.  **Clone the repository:**
     ```bash
     git clone <your-repo-url>
-    cd VoxelDiff2
+    cd plixer
     ```
 
 2.  **Install dependencies:**
@@ -70,8 +70,8 @@ This repository contains three models:
 
 ```bash
 # Clone the repository
-git clone https://github.com/judewells/VoxelDiff2
-cd VoxelDiff2
+git clone https://github.com/judewells/plixer
+cd plixer
 
 # Install dependencies
 pip install -r requirements.txt

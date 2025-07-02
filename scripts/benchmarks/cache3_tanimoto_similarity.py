@@ -64,7 +64,7 @@ if __name__ == "__main__":
     lrh0003_fp = calculate_morgan_fingerprint(lrh0003_mol)
     
     # Load CSV file
-    csv_path = "/mnt/disk2/VoxelDiffOuter/VoxelDiff2/data/cache_round1_smiles_all_out_hits_and_others.csv"
+    csv_path = "/mnt/disk2/VoxelDiffOuter/plixer/data/cache_round1_smiles_all_out_hits_and_others.csv"
     df = pd.read_csv(csv_path)
     
     # Calculate Tanimoto similarities
