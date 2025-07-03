@@ -4,6 +4,7 @@ from typing import Any, Dict, Optional
 import torch
 import numpy as np
 from lightning import LightningModule
+import torch.nn.functional as F
 
 from src.models.pytorch3dunet import ResidualUNetSE3D
 from src.models.pytorch3dunet_lib.unet3d.buildingblocks import ResNetBlockSE, ResNetBlock
@@ -12,7 +13,8 @@ from torch.optim.lr_scheduler import StepLR
 
 from src.evaluation.visual import show_3d_voxel_lig_only, visualise_batch
 
-from src.models.pytorch3dunet_lib.unet3d.losses import get_loss_criterion
+from src.models.pytorch3dunet_lib.unet3d.losses import get_loss_criterion, compute_per_channel_dice
+
 
 class ResUnetConfig:
     def __init__(
@@ -66,7 +68,8 @@ class Poc2Mol(LightningModule):
         self.save_hyperparameters(logger=False)
         assert config.final_sigmoid == False, "final_sigmoid must be False"
         self.model = ResidualUNetSE3D(
-            in_channels=config.in_channels,
+            # Protein channels + 9 ligand channels + 1 mask channel
+            in_channels=config.in_channels + config.out_channels + 1,
             out_channels=config.out_channels,
             final_sigmoid=config.final_sigmoid,
             f_maps=config.f_maps,
@@ -94,6 +97,107 @@ class Poc2Mol(LightningModule):
         self.n_samples_for_visualisation = n_samples_for_visualisation
         self.residual_unet_config = config
 
+        # ---------------- Diffusion hyper-parameters ----------------
+        # total number of un-masking iterations during training / sampling
+        self.num_diffusion_steps = 10
+        # threshold used when turning continuous occupancies into binary one-hot
+        self.discretize_threshold = 0.5
+
+    # ------------------------------------------------------------------
+    # Helper functions for discrete masking diffusion
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    def _discretise_ligand(ligand: torch.Tensor, threshold: float = 0.5) -> torch.Tensor:
+        """Turn continuous 9-channel ligand occupancies into binary one-hot.
+
+        A voxel is considered *occupied* by the winning atom type if its value
+        is >= *threshold*; otherwise the voxel is set to all-zeros (empty).
+        """
+        # ligand: [B, 9, D, H, W]
+        max_vals, max_idx = ligand.max(dim=1, keepdim=True)
+        one_hot = torch.zeros_like(ligand)
+        one_hot.scatter_(1, max_idx, 1.0)
+        occupied_mask = (max_vals >= threshold).float()
+        one_hot = one_hot * occupied_mask
+        return one_hot
+
+    def _generate_random_mask(self, ligand_onehot: torch.Tensor, timesteps: torch.Tensor) -> torch.Tensor:
+        """Sample voxels uniformly (occupied **and** empty) for masking.
+
+        For each sample *b* we mask a fraction `t_b / T` of **all** voxels so
+        that training matches inference, where the model initially sees only
+        mask tokens.
+        """
+        B, _, D, H, W = ligand_onehot.shape
+        device = ligand_onehot.device
+
+        total_vox = D * H * W
+        # create base random numbers once to vectorise the operation
+        rand = torch.rand((B, D, H, W), device=device)
+        # per-sample masking threshold = frac = t/T
+        frac = timesteps.float().view(B, 1, 1, 1) / float(self.num_diffusion_steps)
+        mask = rand < frac  # bool tensor
+
+        # guarantee that at least one voxel is masked so loss isn't NaN
+        for b in range(B):
+            if not mask[b].any():
+                # randomly set one voxel
+                idx = torch.randint(0, total_vox, (1,), device=device)
+                z = idx // (H * W)
+                y = (idx % (H * W)) // W
+                x = idx % W
+                mask[b, z, y, x] = True
+        return mask
+
+    @staticmethod
+    def _apply_mask(ligand_onehot: torch.Tensor, mask_pos: torch.Tensor) -> torch.Tensor:
+        """Return [B, 10, D, H, W] tensor with ligand channels + mask channel."""
+        ligand_masked = ligand_onehot.clone()
+        ligand_masked = ligand_masked * (~mask_pos.unsqueeze(1)).float()
+        mask_channel = mask_pos.unsqueeze(1).float()
+        return torch.cat([ligand_masked, mask_channel], dim=1)
+
+    @torch.no_grad()
+    def sample_ligand(self, prot_vox: torch.Tensor, num_steps: int = None, topk_fraction: float = 0.2):
+        """Iterative de-masking inference.
+
+        Starts from a fully masked ligand and reveals voxels greedily in *num_steps*
+        iterations using the model's current predictions.
+        """
+        num_steps = num_steps or self.num_diffusion_steps
+        B, P, D, H, W = prot_vox.shape
+        C = self.residual_unet_config.out_channels  # 9 atom types
+        device = prot_vox.device
+
+        ligand_part = torch.zeros((B, C, D, H, W), device=device)
+        mask_channel = torch.ones((B, 1, D, H, W), device=device)
+        ligand_with_mask = torch.cat([ligand_part, mask_channel], dim=1)
+
+        for _ in range(num_steps):
+            model_input = torch.cat([prot_vox, ligand_with_mask], dim=1)
+            logits = self.model(model_input)
+            probs = torch.sigmoid(logits)  # [B,9,D,H,W]
+
+            conf, atom_idx = probs.max(dim=1)  # confidence & winning class
+            mask_positions = ligand_with_mask[:, -1] > 0.5  # [B,D,H,W]
+
+            for b in range(B):
+                vox_coords = mask_positions[b].nonzero(as_tuple=False)
+                if vox_coords.numel() == 0:
+                    continue
+                n_to_unmask = max(1, int(topk_fraction * vox_coords.shape[0]))
+                conf_b = conf[b][mask_positions[b]]
+                topk_idx = torch.topk(conf_b, k=n_to_unmask, largest=True).indices
+                selected = vox_coords[topk_idx]
+
+                # zero out any previous content
+                ligand_with_mask[b, :-1, selected[:, 0], selected[:, 1], selected[:, 2]] = 0
+                chosen_atoms = atom_idx[b, selected[:, 0], selected[:, 1], selected[:, 2]]
+                ligand_with_mask[b, chosen_atoms, selected[:, 0], selected[:, 1], selected[:, 2]] = 1
+                ligand_with_mask[b, -1, selected[:, 0], selected[:, 1], selected[:, 2]] = 0  # clear mask
+
+        return ligand_with_mask[:, :-1]  # drop mask channel
 
     def forward(self, prot_vox, labels=None):
         """Run the UNet and (optionally) compute loss.
@@ -102,9 +206,10 @@ class Poc2Mol(LightningModule):
         ----------
         prot_vox : torch.Tensor
             Protein voxel tensor of shape ``[B, C, X, Y, Z]``.
-        labels : torch.Tensor | None, optional
-            Ground-truth ligand voxels.  If supplied, the method will also
-            compute the configured loss criterion.
+        labels : torch.Tensor | None
+            Ground-truth *continuous* ligand voxels (9 channels).  If supplied
+            the method runs a single diffusion training step; otherwise it
+            performs iterative de-masking sampling.
 
         Returns
         -------
@@ -125,40 +230,46 @@ class Poc2Mol(LightningModule):
             additionally contains one entry per individual loss component (e.g.
             ``bce`` and ``dice``).
         """
-        # ------------------------------------------------------------------
-        # Forward through the UNet
-        # ------------------------------------------------------------------
-        pred_logits = self.model(x=prot_vox)  # raw network output
-
-        # Always compute the sigmoid once so that we have a consistent
-        # probability representation available.
-        pred_vox = torch.sigmoid(pred_logits)
-
-        # If no labels are provided we are in inference mode – simply return
-        # the predictions.
+        # ---------------- Inference path ----------------
         if labels is None:
+            pred_vox = self.sample_ligand(prot_vox)
             return {
-                "predicted_ligand_logits": pred_logits,
+                "predicted_ligand_logits": torch.logit(torch.clamp(pred_vox, 1e-6, 1 - 1e-6)),
                 "predicted_ligand_voxels": pred_vox,
             }
 
-        # ------------------------------------------------------------------
-        # Compute the per-component losses
-        # ------------------------------------------------------------------
-        result = self.loss(pred_logits, labels)
+        # ---------------- Training / validation path ----------------
+        # 1) discretise ligand
+        ligand_onehot = self._discretise_ligand(labels, threshold=self.discretize_threshold)
 
-        # Aggregate to a single scalar so that Lightning knows what to optimise
-        total_loss = None
-        if isinstance(result, dict):
-            total_loss = sum(result.values())
+        # 2) sample t ∈ [1,T]
+        B = ligand_onehot.size(0)
+        device = ligand_onehot.device
+        t = torch.randint(1, self.num_diffusion_steps + 1, (B,), device=device)
 
-        result["loss"] = total_loss
-        # Raw logits and sigmoid activations
-        result["predicted_ligand_logits"] = pred_logits
-        result["predicted_ligand_voxels"] = pred_vox
+        # 3) mask occupied voxels
+        mask_pos = self._generate_random_mask(ligand_onehot, t)  # [B,D,H,W] bool
 
+        # 4) create masked ligand input (add mask channel)
+        ligand_masked = self._apply_mask(ligand_onehot, mask_pos)  # [B,10,D,H,W]
 
-        return result
+        # 5) model input = protein + ligand_masked
+        model_input = torch.cat([prot_vox, ligand_masked], dim=1)
+        pred_logits = self.model(model_input)
+        pred_vox = torch.sigmoid(pred_logits)
+
+        # 6) loss on masked voxels only
+        loss_dict = self._masked_bce_dice_loss(pred_logits, ligand_onehot, mask_pos)
+        total_loss = sum(loss_dict.values())
+
+        output = {
+            "predicted_ligand_logits": pred_logits,
+            "predicted_ligand_voxels": pred_vox,
+            "loss": total_loss,
+        }
+        if isinstance(loss_dict, dict):
+            output.update(loss_dict)
+        return output
 
     def training_step(self, batch, batch_idx):
         if "load_time" in batch:
@@ -192,35 +303,43 @@ class Poc2Mol(LightningModule):
         return loss
 
     def validation_step(self, batch, batch_idx):
-        outputs = self(batch["protein"], labels=batch["ligand"])
-        pred_vox = outputs["predicted_ligand_voxels"]
-        loss = outputs["loss"]
+        # ------------ masked loss (same as training) -------------
+        outputs_masked = self(batch["protein"], labels=batch["ligand"])
+        masked_loss = outputs_masked["loss"]
 
-        # Log each component
-        for k, v in outputs.items():
+        for k, v in outputs_masked.items():
             if k in {"predicted_ligand_voxels", "predicted_ligand_logits"}:
                 continue
-            self.log(f"val/{k}", v, on_step=False, on_epoch=True, prog_bar=(k=="loss"))
+            self.log(f"val/masked_{k}", v, on_step=False, on_epoch=True, prog_bar=(k=="loss"))
 
-        # Optional visualisation
+        # ------------ full diffusion evaluation ------------------
+        with torch.no_grad():
+            pred_vox_full = self.sample_ligand(batch["protein"])  # [B,9,...]
+
+        target_onehot_full = self._discretise_ligand(batch["ligand"], threshold=self.discretize_threshold)
+        full_loss_dict = self._full_bce_dice_loss(pred_vox_full, target_onehot_full)
+
+        for k, v in full_loss_dict.items():
+            self.log(f"val/full_{k}", v, on_step=False, on_epoch=True, prog_bar=(k=="loss"))
+
+        # Visualisation using full predictions
         if self.visualise_val and batch_idx in [0, 50, 100]:
             try:
                 save_dir = f"{self.img_save_dir}/val" if self.img_save_dir else None
-                outputs_for_viz = pred_vox[:self.n_samples_for_visualisation].float().detach().cpu().numpy()
+                outputs_for_viz = pred_vox_full[:self.n_samples_for_visualisation].float().detach().cpu().numpy()
                 lig, pred, names = batch["ligand"][:self.n_samples_for_visualisation], outputs_for_viz[:self.n_samples_for_visualisation], batch["name"][:self.n_samples_for_visualisation]
-            
+
                 visualise_batch(
                     lig,
                     pred,
-                        names,
-                        save_dir=save_dir,
-                        batch=str(batch_idx)
-                    )
+                    names,
+                    save_dir=save_dir,
+                    batch=str(batch_idx)
+                )
             except Exception as e:
                 print(f"Error visualising batch {batch_idx}: {e}")
 
-        
-        return loss
+        return masked_loss
 
     def test_step(self, batch, batch_idx):
         outputs = self(batch["protein"], labels=batch["ligand"])
@@ -329,3 +448,44 @@ class Poc2Mol(LightningModule):
             f"channel_mean/protein_{channel}": batch['protein'][:, channel, ...].mean().detach().item()
             for channel in range(n_prot_channels)
         })
+
+    # ------------------------------------------------------------------
+    # Masked BCE + Dice combined loss
+    # ------------------------------------------------------------------
+    def _masked_bce_dice_loss(self, pred_logits: torch.Tensor, target_onehot: torch.Tensor, mask_pos: torch.Tensor):
+        """Compute BCE-Dice only over *masked* voxels.
+
+        Parameters
+        ----------
+        pred_logits : [B, 9, D, H, W]
+        target_onehot : [B, 9, D, H, W]
+        mask_pos : [B, D, H, W] (bool)
+        """
+        mask = mask_pos.unsqueeze(1).float()  # broadcast over channel
+
+        # ------------------ BCE ------------------
+        bce = F.binary_cross_entropy_with_logits(pred_logits, target_onehot, reduction='none')
+        bce = (bce * mask).sum() / mask.sum().clamp_min(1.0)
+
+        # ------------------ Dice -----------------
+        pred_prob = torch.sigmoid(pred_logits)
+        dice_coeff = compute_per_channel_dice(pred_prob * mask, target_onehot * mask)
+        dice = 1.0 - dice_coeff.mean()
+
+        return {"bce": bce, "dice": dice}
+
+    # ------------------------------------------------------------------
+    # Full-grid BCE + Dice for end-to-end diffusion evaluation
+    # ------------------------------------------------------------------
+    def _full_bce_dice_loss(self, pred_prob: torch.Tensor, target_onehot: torch.Tensor):
+        """Loss over the entire grid (no masking).
+
+        Parameters
+        ----------
+        pred_prob : [B, 9, D, H, W] (sigmoid outputs or binary 0/1)
+        target_onehot : [B, 9, D, H, W]
+        """
+        bce = F.binary_cross_entropy(pred_prob, target_onehot)
+        dice_coeff = compute_per_channel_dice(pred_prob, target_onehot)
+        dice = 1.0 - dice_coeff.mean()
+        return {"bce": bce, "dice": dice, "loss": bce + dice}

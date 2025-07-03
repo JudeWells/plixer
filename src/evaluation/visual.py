@@ -78,7 +78,7 @@ ALL_ANGLES = [
 
 def show_3d_voxel_lig_only(vox, angles=None, save_dir=None, identifier='lig'):
     if not isinstance(vox, np.ndarray):
-        vox = vox.detach().cpu().numpy()
+        vox = vox.detach().float().cpu().numpy()
     vox = (vox > 0.5).astype(int)
     # vox = vox[:5]  # only ligand channels
     colors = np.zeros((vox.shape[0], 4))
