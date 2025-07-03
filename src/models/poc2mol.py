@@ -102,6 +102,8 @@ class Poc2Mol(LightningModule):
         self.num_diffusion_steps = 10
         # threshold used when turning continuous occupancies into binary one-hot
         self.discretize_threshold = 0.5
+        # Probability below this is interpreted as EMPTY during sampling
+        self.empty_threshold = 0.5
 
     # ------------------------------------------------------------------
     # Helper functions for discrete masking diffusion
@@ -179,7 +181,14 @@ class Poc2Mol(LightningModule):
             logits = self.model(model_input)
             probs = torch.sigmoid(logits)  # [B,9,D,H,W]
 
-            conf, atom_idx = probs.max(dim=1)  # confidence & winning class
+            # Atom-wise max prob and index
+            conf_atom, atom_idx = probs.max(dim=1)  # [B,D,H,W]
+            # Probability that voxel is empty = 1 - sum(atom_probs)
+            empty_prob = (1.0 - probs.sum(dim=1)).clamp(min=0.0, max=1.0)  # [B,D,H,W]
+
+            # Confidence used for ranking: best between atoms and empty
+            conf_total = torch.maximum(conf_atom, empty_prob)  # [B,D,H,W]
+
             mask_positions = ligand_with_mask[:, -1] > 0.5  # [B,D,H,W]
 
             for b in range(B):
@@ -187,15 +196,27 @@ class Poc2Mol(LightningModule):
                 if vox_coords.numel() == 0:
                     continue
                 n_to_unmask = max(1, int(topk_fraction * vox_coords.shape[0]))
-                conf_b = conf[b][mask_positions[b]]
+                conf_b = conf_total[b][mask_positions[b]]
                 topk_idx = torch.topk(conf_b, k=n_to_unmask, largest=True).indices
                 selected = vox_coords[topk_idx]
 
                 # zero out any previous content
                 ligand_with_mask[b, :-1, selected[:, 0], selected[:, 1], selected[:, 2]] = 0
-                chosen_atoms = atom_idx[b, selected[:, 0], selected[:, 1], selected[:, 2]]
-                ligand_with_mask[b, chosen_atoms, selected[:, 0], selected[:, 1], selected[:, 2]] = 1
-                ligand_with_mask[b, -1, selected[:, 0], selected[:, 1], selected[:, 2]] = 0  # clear mask
+
+                # Iterate over selected voxels and decide empty vs atom prediction
+                for idx_i in range(selected.shape[0]):
+                    z, y, x = selected[idx_i]
+                    best_ch = atom_idx[b, z, y, x].item()
+                    best_conf_atom = probs[b, best_ch, z, y, x].item()
+                    best_conf_empty = empty_prob[b, z, y, x].item()
+
+                    if best_conf_empty >= best_conf_atom and best_conf_empty >= self.empty_threshold:
+                        # leave all-zero → empty prediction
+                        pass
+                    elif best_conf_atom >= self.empty_threshold:
+                        ligand_with_mask[b, best_ch, z, y, x] = 1.0  # assign atom
+                    # otherwise low confidence for both, keep empty
+                    ligand_with_mask[b, -1, z, y, x] = 0  # clear mask regardless
 
         return ligand_with_mask[:, :-1]  # drop mask channel
 
@@ -485,7 +506,8 @@ class Poc2Mol(LightningModule):
         pred_prob : [B, 9, D, H, W] (sigmoid outputs or binary 0/1)
         target_onehot : [B, 9, D, H, W]
         """
-        bce = F.binary_cross_entropy(pred_prob, target_onehot)
+        eps = 1e-6
+        bce = F.binary_cross_entropy_with_logits(torch.logit(pred_prob.clamp(eps, 1 - eps)), target_onehot)
         dice_coeff = compute_per_channel_dice(pred_prob, target_onehot)
         dice = 1.0 - dice_coeff.mean()
         return {"bce": bce, "dice": dice, "loss": bce + dice}
