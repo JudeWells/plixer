@@ -21,6 +21,8 @@ cat "$0" # print the contents of this file to the log
 echo "####################  QSUB SCRIPT END  ####################"
 conda deactivate
 conda activate vox
+nvidia-smi
+echo "CUDA_VISIBLE_DEVICES=$CUDA_VISIBLE_DEVICES"
 which python
 ROOT_DIR='/SAN/orengolab/nsp13/VoxelDiffOuter/plixer/'
 export HYDRA_FULL_ERROR=1

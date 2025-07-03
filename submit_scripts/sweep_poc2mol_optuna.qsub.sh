@@ -19,7 +19,8 @@
 # Diagnostic info
 hostname
 nvidia-smi || true
-
+nvidia-smi
+echo "CUDA_VISIBLE_DEVICES=$CUDA_VISIBLE_DEVICES"
 echo "### Starting Optuna worker $SGE_TASK_ID at $(date) ###"
 
 # Activate environment (adapt to your setup)
