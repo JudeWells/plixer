@@ -7,6 +7,9 @@
 ╚═╝          ╚══════╝    ╚═╝    ╚═╝   ╚═╝     ╚══════╝    ╚═╝  ╚═╝
                                                          
 ```
+Plixer is a generative model for drug-like molecules that bind in protein pockets.
+Provide a PDB file and a pocket location and the model generates SMILES strings for small molecule binders.
+
 1.  **Clone the repository:**
     ```bash
     git clone git@github.com:JudeWells/plixer.git
