@@ -62,7 +62,8 @@ class Poc2Mol(LightningModule):
         override_optimizer_on_load: bool = False,
         visualise_train: bool = True,
         visualise_val: bool = True,
-        n_samples_for_visualisation: int = 2
+        n_samples_for_visualisation: int = 2,
+        unmasking_strategy: str = "random",  # "confidence" or "random"
     ) -> None:
         super().__init__()
         self.save_hyperparameters(logger=False)
@@ -95,6 +96,11 @@ class Poc2Mol(LightningModule):
         self.visualise_val = visualise_val
         self.visualise_train = visualise_train
         self.n_samples_for_visualisation = n_samples_for_visualisation
+        # Strategy for selecting which masked voxels to reveal during sampling
+        assert unmasking_strategy in {"confidence", "random"}, (
+            "unmasking_strategy must be either 'confidence' or 'random'"
+        )
+        self.unmasking_strategy = unmasking_strategy
         self.residual_unet_config = config
 
         # ---------------- Diffusion hyper-parameters ----------------
@@ -195,10 +201,17 @@ class Poc2Mol(LightningModule):
                 vox_coords = mask_positions[b].nonzero(as_tuple=False)
                 if vox_coords.numel() == 0:
                     continue
+
                 n_to_unmask = max(1, int(topk_fraction * vox_coords.shape[0]))
-                conf_b = conf_total[b][mask_positions[b]]
-                topk_idx = torch.topk(conf_b, k=n_to_unmask, largest=True).indices
-                selected = vox_coords[topk_idx]
+
+                if self.unmasking_strategy == "confidence":
+                    # Select voxels with highest confidence according to the model
+                    conf_b = conf_total[b][mask_positions[b]]
+                    topk_idx = torch.topk(conf_b, k=n_to_unmask, largest=True).indices
+                    selected = vox_coords[topk_idx]
+                else:  # "random"
+                    perm = torch.randperm(vox_coords.shape[0], device=device)
+                    selected = vox_coords[perm[:n_to_unmask]]
 
                 # zero out any previous content
                 ligand_with_mask[b, :-1, selected[:, 0], selected[:, 1], selected[:, 2]] = 0
@@ -333,32 +346,33 @@ class Poc2Mol(LightningModule):
                 continue
             self.log(f"val/masked_{k}", v, on_step=False, on_epoch=True, prog_bar=(k=="loss"))
 
-        # ------------ full diffusion evaluation ------------------
-        with torch.no_grad():
-            pred_vox_full = self.sample_ligand(batch["protein"])  # [B,9,...]
+        # ------------ full diffusion evaluation (every 10 batches) ------------------
+        if batch_idx % 10 == 0:
+            with torch.no_grad():
+                pred_vox_full = self.sample_ligand(batch["protein"])  # [B,9,...]
 
-        target_onehot_full = self._discretise_ligand(batch["ligand"], threshold=self.discretize_threshold)
-        full_loss_dict = self._full_bce_dice_loss(pred_vox_full, target_onehot_full)
+            target_onehot_full = self._discretise_ligand(batch["ligand"], threshold=self.discretize_threshold)
+            full_loss_dict = self._full_bce_dice_loss(pred_vox_full, target_onehot_full)
 
-        for k, v in full_loss_dict.items():
-            self.log(f"val/full_{k}", v, on_step=False, on_epoch=True, prog_bar=(k=="loss"))
+            for k, v in full_loss_dict.items():
+                self.log(f"val/full_{k}", v, on_step=False, on_epoch=True, prog_bar=(k=="loss"))
 
-        # Visualisation using full predictions
-        if self.visualise_val and batch_idx in [0, 50, 100]:
-            try:
-                save_dir = f"{self.img_save_dir}/val" if self.img_save_dir else None
-                outputs_for_viz = pred_vox_full[:self.n_samples_for_visualisation].float().detach().cpu().numpy()
-                lig, pred, names = batch["ligand"][:self.n_samples_for_visualisation], outputs_for_viz[:self.n_samples_for_visualisation], batch["name"][:self.n_samples_for_visualisation]
+            # Visualisation using full predictions
+            if self.visualise_val and batch_idx in [0, 50, 100]:
+                try:
+                    save_dir = f"{self.img_save_dir}/val" if self.img_save_dir else None
+                    outputs_for_viz = pred_vox_full[:self.n_samples_for_visualisation].float().detach().cpu().numpy()
+                    lig, pred, names = batch["ligand"][:self.n_samples_for_visualisation], outputs_for_viz[:self.n_samples_for_visualisation], batch["name"][:self.n_samples_for_visualisation]
 
-                visualise_batch(
-                    lig,
-                    pred,
-                    names,
-                    save_dir=save_dir,
-                    batch=str(batch_idx)
-                )
-            except Exception as e:
-                print(f"Error visualising batch {batch_idx}: {e}")
+                    visualise_batch(
+                        lig,
+                        pred,
+                        names,
+                        save_dir=save_dir,
+                        batch=str(batch_idx)
+                    )
+                except Exception as e:
+                    print(f"Error visualising batch {batch_idx}: {e}")
 
         return masked_loss
 
