@@ -22,12 +22,14 @@ from src.data.common.voxelization.config import Poc2MolDataConfig
 from src.models.poc2smiles import CombinedProteinToSmilesModel
 from src.data.common.tokenizers.smiles_tokenizer import build_smiles_tokenizer
 from visualisation import generate_plots_from_results_df
+from src.evaluation.visual import show_3d_voxel_lig_only
 from rdkit import Chem, DataStructs
 from rdkit.Chem import AllChem
 from rdkit.Chem import rdFMCS
 from sklearn.metrics import roc_auc_score, precision_recall_curve, auc
 import pandas as pd
 from tqdm import tqdm
+import torch.nn.functional as F
 """
 This script evaluates a combined model
 where we have a checkpoint for the poc2mol model
@@ -44,6 +46,7 @@ For eah model we want to evaluate the following metrics:
 - proportion of generated molecules are unique
 """
 
+
 def compute_auc_roc(df):
     y_true = df['is_hit'].values
     y_scores = df['likelihood'].values
@@ -59,9 +62,15 @@ def compute_auc_pr(df):
 def parse_args():
     parser = argparse.ArgumentParser(description="Evaluate Poc2Mol model")
     parser.add_argument(
-        "--ckpt_path", 
+        "--vox2smiles_ckpt_path", 
         type=str, 
         default="logs/CombinedHiQBindCkptFrmPrevCombined/runs/2025-05-06_20-51-46/checkpoints/last.ckpt",
+        help="Path to the model checkpoint"
+    )
+    parser.add_argument(
+        "--poc2mol_ckpt_path", 
+        type=str, 
+        default="logs/poc2mol/runs/2025-04-21_18-13-26/checkpoints/epoch_173.ckpt",
         help="Path to the model checkpoint"
     )
     parser.add_argument(
@@ -80,7 +89,7 @@ def parse_args():
     parser.add_argument(
         "--dtype", 
         type=str, 
-        default="torch.bfloat16",
+        default="torch.float32",
         help="Evaluation dtype"
     )
     parser.add_argument(
@@ -91,8 +100,8 @@ def parse_args():
 
 def build_test_config(complex_dataset_config: DictConfig, dtype: str, system_ids: List[str] = None):
     test_config = copy.deepcopy(complex_dataset_config)
-    test_config['random_rotation'] = False
-    test_config['random_translation'] = 0.0
+    test_config['random_rotation'] = True
+    test_config['random_translation'] = 5.0
     test_config['batch_size'] = 1
     test_config.dtype = dtype
     test_config.remove_hydrogens = True
@@ -106,7 +115,7 @@ def build_parquet_test_dataloader(poc2mol_config: DictConfig, dtype: str, pdb_di
         data_path=pdb_dir,
         use_cluster_member_zero=True
     )
-    return DataLoader(dataset, batch_size=1, shuffle=True)
+    return DataLoader(dataset, batch_size=1, shuffle=False)
 
 
 def build_pdb_test_dataloader(
@@ -122,21 +131,30 @@ def build_pdb_test_dataloader(
     )
     return DataLoader(dataset, batch_size=1, shuffle=False)
 
-def add_smiles_to_batch(batch: dict, tokenizer: PreTrainedTokenizerFast, max_smiles_len: int):
+def add_smiles_to_batch(batch: dict, tokenizer: PreTrainedTokenizerFast):
     for i, smi in enumerate(batch['smiles']):
         if not smi.startswith(tokenizer.bos_token):
-            batch['smiles'][i] = tokenizer.bos_token + tokenizer.bos_token + smi
+            batch['smiles'][i] = tokenizer.bos_token + smi
         if not smi.endswith(tokenizer.eos_token):
             batch['smiles'][i] = batch['smiles'][i] + tokenizer.eos_token
-        tokenized = tokenizer(
-            batch['smiles'],
-            padding='max_length',
-            max_length=max_smiles_len,
-            truncation=True,
-            return_tensors="pt"
-        )
-        device  = batch['protein'].device
-        tokenized = {k: v.to(device) for k, v in tokenized.items()}
+        
+    max_smiles = max([
+        len(tokenizer.tokenize(
+            smi,
+            padding=False,
+            truncation=False,
+            )) for smi in batch['smiles']
+        ])
+    
+    tokenized = tokenizer(
+        batch['smiles'],
+        padding='max_length',
+        max_length=max_smiles,
+        truncation=True,
+        return_tensors="pt"
+    )
+    device  = batch['protein'].device
+    tokenized = {k: v.to(device) for k, v in tokenized.items()}
     batch.update(tokenized)
     return batch
 
@@ -206,15 +224,16 @@ def evaluate_combined_model(
         if len(batch['smiles'][0]) > 100:
             continue
         if 'smiles' in batch:
-            batch = add_smiles_to_batch(batch, tokenizer, max_smiles_len)
-        # Get the model output
+            batch = add_smiles_to_batch(batch, tokenizer)
+        # Forward pass to obtain Poc2Mol prediction + loss on the *true* SMILES
         result = combined_model.forward(
-            batch['protein'], 
-            batch['input_ids'], 
-            decoy_labels, 
-            ligand_voxels=batch['ligand']
-            )
-        decoy_labels = batch['input_ids'] # use previous batch as decoy labels
+            protein_voxels=batch['protein'],
+            labels=batch['input_ids'],
+            ligand_voxels=batch['ligand'],
+            sample_smiles=True,
+        )
+
+
         if save_voxels and not skip_visualisation:
             assert len(batch['ligand']) == 1
             os.makedirs(f'{output_dir}/voxels', exist_ok=True)
@@ -263,26 +282,6 @@ def evaluate_combined_model(
         tanimoto_similarity = get_tanimoto_similarity_from_smiles(true_smiles, sampled_smiles)
         decoy_tanimoto_similarity = get_tanimoto_similarity_from_smiles(decoy_smiles, sampled_smiles)
         true_vs_decoy_tanimoto_similarity = get_tanimoto_similarity_from_smiles(true_smiles, decoy_smiles)
-    
-        # mcs_num_atoms = get_max_common_substructure_num_atoms(true_smiles, sampled_smiles)
-        # decoy_mcs_num_atoms = get_max_common_substructure_num_atoms(decoy_smiles, sampled_smiles)
-        # true_vs_decoy_mcs_num_atoms = get_max_common_substructure_num_atoms(true_smiles, decoy_smiles)
-        # try:
-        #     true_num_heavy_atoms = Chem.MolFromSmiles(true_smiles).GetNumHeavyAtoms()
-        # except:
-        #     true_num_heavy_atoms = None
-            
-        # # Calculate prop_common_structure for both sampled and decoy
-        # if sampled_smiles is not None and true_num_heavy_atoms is not None:
-        #     try:
-        #         prop_common_structure = mcs_num_atoms / true_num_heavy_atoms if mcs_num_atoms is not None else None
-        #         decoy_prop_common_structure = decoy_mcs_num_atoms / true_num_heavy_atoms if decoy_mcs_num_atoms is not None else None
-        #     except:
-        #         prop_common_structure = None
-        #         decoy_prop_common_structure = None
-        # else:
-        #     prop_common_structure = None
-        #     decoy_prop_common_structure = None
 
         decoy_smiles = true_smiles # use last batch smiles as decoy smiles
         
@@ -290,27 +289,18 @@ def evaluate_combined_model(
             {
                 'sampled_smiles': sampled_smiles,
                 'loss': result['loss'].item(),
-                'decoy_loss': result['decoy_loss'].item() if 'decoy_loss' in result else None,
                 'log_likelihood': -result['loss'].item(),
-                'decoy_log_likelihood': -result['decoy_loss'].item() if 'decoy_loss' in result else None,
                 'name': batch['name'][0],
                 'smiles': batch['smiles'][0].replace("[BOS]", "").replace("[EOS]", ""),
                 'valid_smiles': valid_smiles,
                 'tanimoto_similarity': tanimoto_similarity,
                 'decoy_tanimoto_similarity': decoy_tanimoto_similarity,
                 'true_vs_decoy_tanimoto_similarity': true_vs_decoy_tanimoto_similarity,
-                # 'mcs_num_atoms': mcs_num_atoms,
-                # 'decoy_mcs_num_atoms': decoy_mcs_num_atoms,
-                # 'true_vs_decoy_mcs_num_atoms': true_vs_decoy_mcs_num_atoms,
-                # 'prop_common_structure': prop_common_structure,
-                # 'decoy_prop_common_structure': decoy_prop_common_structure,
-                # 'true_num_heavy_atoms': true_num_heavy_atoms,
                 'poc2mol_bce': result['poc2mol_bce'],
                 'poc2mol_dice': result['poc2mol_dice'],
                 'poc2mol_loss': result['poc2mol_loss'],
                 'smiles_teacher_forced_accuracy': result['smiles_teacher_forced_accuracy'].item(),
-                'decoy_smiles_true_label_teacher_forced_accuracy': result['decoy_smiles_true_label_teacher_forced_accuracy'].item() if 'decoy_smiles_true_label_teacher_forced_accuracy' in result else None,
-                'decoy_smiles_decoy_label_teacher_forced_accuracy': result['decoy_smiles_decoy_label_teacher_forced_accuracy'].item() if 'decoy_smiles_decoy_label_teacher_forced_accuracy' in result else None
+                
             }
         )
         df = pd.DataFrame(result_rows)
@@ -363,19 +353,18 @@ def all_decoy_smiles_likelihood_scoring(
         likelihoods = []
         decoy_smiles_current_batch = [s for s in all_decoy_smiles if s not in batch['smiles']]
         assert len(decoy_smiles_current_batch) < len(all_decoy_smiles)
-        if len(batch['smiles'][0]) > 100:
+        if len(batch['smiles'][0]) > max_smiles_len:
             raise ValueError(f"Smiles length is too long: {len(batch['smiles'][0])}")
-        batch = add_smiles_to_batch(batch, tokenizer, max_smiles_len)
+        batch = add_smiles_to_batch(batch, tokenizer)
 
         result = combined_model.forward(
                 protein_voxels=batch['protein'], 
                 labels=batch['input_ids'], 
-                ligand_voxels=batch['ligand'],
+                ligand_voxels=None,
                 sample_smiles=False,
-                return_poc2mol_output=True,
                 )
         likelihood = result['loss'].item()*-1
-        poc2mol_output = result['poc2mol_output']
+        predicted_ligand_voxels = result['predicted_ligand_voxels']
         token_accuracy = result['smiles_teacher_forced_accuracy'].item()    
         likelihoods.append({
             'is_hit': 1,
@@ -385,16 +374,12 @@ def all_decoy_smiles_likelihood_scoring(
         })
         for j, decoy_smiles in enumerate(decoy_smiles_current_batch):
             batch['smiles'] = [decoy_smiles]
-            batch = add_smiles_to_batch(batch, tokenizer, max_smiles_len)
+            batch = add_smiles_to_batch(batch, tokenizer)
         # Get the model output
-            decoy_result = combined_model.forward(
-                protein_voxels=batch['protein'], 
-                labels=batch['input_ids'], 
-                ligand_voxels=batch['ligand'],
-                sample_smiles=False,
-                poc2mol_output=poc2mol_output,
-                return_poc2mol_output=False,
-                )
+            decoy_result = combined_model.compute_smiles_metrics(
+                ligand_voxels=predicted_ligand_voxels,
+                labels=batch['input_ids'],
+            )
             decoy_likelihood = decoy_result['loss'].item()*-1
             decoy_token_accuracy = decoy_result['smiles_teacher_forced_accuracy'].item()
             likelihoods.append({
@@ -424,6 +409,224 @@ def all_decoy_smiles_likelihood_scoring(
         results_df.to_csv(os.path.join(output_dir, "all_decoy_likelihoods.csv"), index=False)
     return results_df
 
+
+
+def all_decoy_smiles_likelihood_scoring_batched(
+        combined_model: CombinedProteinToSmilesModel,
+        test_dataloader: DataLoader,
+        df: pd.DataFrame,
+        output_dir: str = "evaluation_results",
+        smiles_batch_size: int = 128,
+        n_pocket_variants: int = 1,
+):
+    """Batched variant of *all_decoy_smiles_likelihood_scoring* with optional
+    pocket augmentation.
+
+    Vox2Smiles model.  Optionally, the evaluation can be repeated
+    ``n_pocket_variants`` times for each complex by re-sampling the same
+    dataset index, thereby leveraging random rotations / translations inside
+    the ``ParquetDataset`` to obtain multiple plausible ligand voxel
+    predictions.  The log-likelihood for every candidate SMILES is averaged
+    across those variants.
+
+    Note that we manually compute the average log-likelihood for every sample
+    since the HuggingFace loss returned by ``VisionEncoderDecoderModel`` is
+    averaged across the batch.
+    """
+
+    os.makedirs(output_dir, exist_ok=True)
+
+    # Tokeniser and misc. config
+    tokenizer = build_smiles_tokenizer()
+    config = combined_model.config
+    max_smiles_len = config.data.config.max_smiles_len
+
+    all_decoy_smiles = df.smiles.values
+
+    os.makedirs(os.path.join(output_dir, "likelihood_scores"), exist_ok=True)
+
+    results = []  # per-complex summary metrics (AUROC, etc.)
+
+    # Try to infer device from the combined model (fallback to CPU)
+    try:
+        device = next(combined_model.parameters()).device
+    except StopIteration:  # pragma: no cover – should not happen
+        device = torch.device("cpu")
+
+    for i, batch in tqdm(enumerate(test_dataloader), total=len(test_dataloader)):
+        system_id = batch['name'][0]
+
+        # Guard against overly long reference SMILES (would violate tokenizer
+        # max length assumptions and make comparisons unfair)
+        if len(batch['smiles'][0]) > max_smiles_len:
+            raise ValueError(
+                f"SMILES length for system '{system_id}' exceeds the allowed "
+                f"maximum of {max_smiles_len} tokens."
+            )
+
+        # ------------------------------------------------------------------
+        # 1) Obtain one or more predicted ligand voxel grids by repeatedly
+        #    sampling the same pocket (leveraging random transforms inside
+        #    the dataset).  The first pass uses the current `batch`, the
+        #    remaining passes query `test_dataloader.dataset[i]` directly to
+        #    trigger a fresh rotation / translation.
+        # ------------------------------------------------------------------
+        pocket_voxel_variants = []  # list[(1,C,D,H,W)]
+
+        n_variants = max(1, n_pocket_variants)
+        for aug_idx in range(n_variants):
+            if aug_idx == 0:
+                protein_vox = batch['protein'].to(device)
+            else:
+                # Re-sample same index to obtain a new random transform.
+                aug_sample = test_dataloader.dataset[i]
+                protein_vox = aug_sample['protein']
+                if protein_vox.dim() == 4:
+                    protein_vox = protein_vox.unsqueeze(0)  # add batch dim
+                protein_vox = protein_vox.to(device)
+
+            with torch.no_grad():
+                poc2mol_out = combined_model.poc2mol_model(protein_vox)
+            pocket_voxel_variants.append(poc2mol_out['predicted_ligand_voxels'])
+            # img_dir = os.path.join(output_dir, "likelihood_scores", f"pocket_voxel_variants", batch['name'][0])
+            # os.makedirs(img_dir, exist_ok=True)
+            # show_3d_voxel_lig_only(
+            #     poc2mol_out['predicted_ligand_voxels'][0],
+            #     angles=[(45,45)],
+            #     save_dir=img_dir,
+            #     identifier=f"{batch['name'][0]}_pocket_voxel_variant_{aug_idx}",
+            #     )
+        likelihood_rows = []  # candidate-level results for this pocket
+
+        # ------------------------------------------------------------------
+        # 2) Build candidate list: active ligand + decoys (unique)
+        # ------------------------------------------------------------------
+        active_smiles_raw = batch['smiles'][0]
+        active_smiles = active_smiles_raw.replace("[BOS]", "").replace("[EOS]", "")
+        decoy_smiles_current = [s for s in all_decoy_smiles if s != active_smiles]
+        assert len(decoy_smiles_current) < len(all_decoy_smiles)
+        smiles_candidates = [active_smiles] + decoy_smiles_current
+        is_hit_flags = [1] + [0] * len(decoy_smiles_current)
+
+        # ------------------------------------------------------------------
+        # 3) Iterate over all candidates in mini-batches **for every pocket
+        #    variant**, accumulate log-likelihoods / accuracies, then average.
+        # ------------------------------------------------------------------
+
+        n_candidates = len(smiles_candidates)
+        ll_sums = np.zeros(n_candidates, dtype=np.float32)
+        acc_sums = np.zeros(n_candidates, dtype=np.float32)
+
+        for pred_vox in pocket_voxel_variants:
+            for start_idx in range(0, n_candidates, smiles_batch_size):
+                end_idx = start_idx + smiles_batch_size
+                batch_smiles = smiles_candidates[start_idx:end_idx]
+
+                # Ensure BOS/EOS tokens for each SMILES
+                batch_smiles_tok = []
+                for smi in batch_smiles:
+                    if not smi.startswith(tokenizer.bos_token):
+                        smi = tokenizer.bos_token + smi
+                    if not smi.endswith(tokenizer.eos_token):
+                        smi = smi + tokenizer.eos_token
+                    batch_smiles_tok.append(smi)
+
+                # Dynamic padding length per mini-batch
+                batch_max_len = max(len(s) for s in batch_smiles_tok)
+                tokenized = tokenizer(
+                    batch_smiles_tok,
+                    padding='max_length',
+                    max_length=batch_max_len,
+                    truncation=True,
+                    return_tensors='pt',
+                )
+
+                labels = tokenized['input_ids'].to(device)
+                pad_id = tokenizer.pad_token_id
+
+                masked_labels = labels.clone()
+                masked_labels[masked_labels == pad_id] = -100
+
+                # Duplicate predicted voxels to match candidate batch size
+                pred_vox_batch = pred_vox.repeat(labels.size(0), 1, 1, 1, 1)
+
+                with torch.no_grad():
+                    vox2_out = combined_model.vox2smiles_model(pred_vox_batch, labels=masked_labels)
+                logits = vox2_out.logits  # (B, L, V)
+
+                # a) Log-likelihood per sequence
+                log_probs = F.log_softmax(logits, dim=-1)
+                gather_idx = labels.clone()
+                gather_idx[gather_idx == pad_id] = 0
+                token_log_probs = log_probs.gather(-1, gather_idx.unsqueeze(-1)).squeeze(-1)
+                valid_mask = labels != pad_id
+                token_log_probs = token_log_probs * valid_mask
+                seq_lens = valid_mask.sum(dim=1).clamp(min=1)
+                seq_log_ll = token_log_probs.sum(dim=1) / seq_lens  # (B,)
+
+                # b) Accuracy
+                shift_logits = logits[..., 1:, :]
+                shift_labels = masked_labels[..., 1:]
+                non_padding_mask = shift_labels != -100
+                correct_tokens = (shift_logits.argmax(-1) == shift_labels).float()
+                per_seq_acc = (correct_tokens * non_padding_mask).sum(dim=1) / non_padding_mask.sum(dim=1).clamp(min=1)
+
+                # c) Accumulate
+                for j in range(labels.size(0)):
+                    global_idx = start_idx + j
+                    ll_sums[global_idx] += seq_log_ll[j].item()
+                    acc_sums[global_idx] += per_seq_acc[j].item()
+
+        # Average across variants
+        ll_means = ll_sums / n_variants
+        acc_means = acc_sums / n_variants
+
+        for idx in range(n_candidates):
+            likelihood_rows.append({
+                'is_hit': is_hit_flags[idx],
+                'likelihood': ll_means[idx].item() if hasattr(ll_means[idx], 'item') else float(ll_means[idx]),
+                'name': system_id,
+                'token_accuracy': acc_means[idx].item() if hasattr(acc_means[idx], 'item') else float(acc_means[idx]),
+            })
+
+        # ------------------------------------------------------------------
+        # 4) Per-pocket evaluation (AUROC, precision-recall, …)
+        # ------------------------------------------------------------------
+        likelihood_df = pd.DataFrame(likelihood_rows)
+
+        # Persist candidate-level scores for further analysis
+        csv_path = os.path.join(
+            output_dir,
+            "likelihood_scores",
+            f"likelihood_output_{system_id}.csv",
+        )
+        likelihood_df.to_csv(csv_path, index=False)
+
+        # Compute metrics
+        auc_roc = compute_auc_roc(likelihood_df)
+        auc_pr = compute_auc_pr(likelihood_df)
+
+        likelihood_df_sorted = likelihood_df.sort_values(by='likelihood', ascending=False)
+        rank_of_hit = int(np.where(likelihood_df_sorted.is_hit == 1)[0][0])
+
+        print(f"{system_id} AUC ROC: {auc_roc}, AUC PR: {auc_pr}, rank of hit: {rank_of_hit}")
+
+        results.append({
+            'system_id': system_id,
+            'auc_roc': auc_roc,
+            'auc_pr': auc_pr,
+            'rank_of_hit': rank_of_hit,
+            'hit_likelihood': likelihood_df[likelihood_df.is_hit == 1].likelihood.iloc[0],
+            'hit_teacher_forced_accuracy': likelihood_df[likelihood_df.is_hit == 1].token_accuracy.iloc[0],
+        })
+
+        # Save running summary
+        pd.DataFrame(results).to_csv(
+            os.path.join(output_dir, "all_decoy_likelihoods_batched.csv"),
+            index=False,
+        )
+
+    return pd.DataFrame(results)
     
 
 def calculate_enrichment_factor(df, target_col="tanimoto_similarity", target_threshold=0.3):
@@ -443,7 +646,7 @@ def calculate_enrichment_factor(df, target_col="tanimoto_similarity", target_thr
 def get_plinder_test_split(similarity_df, results_df):
     train_dataset = pd.read_csv("../hiqbind/plixer_train_data.csv")
     plinder_split_df = pd.read_parquet('/mnt/disk2/plinder/2024-06/v2/splits/split.parquet')
-    results_df['pdb_id'] = results_df['name'].apply(lambda x: x.split("_")[0])
+    results_df['pdb_id'] = results_df['system_id'].apply(lambda x: x.split("_")[0])
     plinder_split_df['pdb_id'] = plinder_split_df['system_id'].apply(lambda x: x.split("_")[0])
     all_train_clusters = []
     if 'plinder_clusters' not in train_dataset.columns:
@@ -500,9 +703,9 @@ def compute_all_decoy_similarity_enrichment_factor(results_df, threshold=0.3):
 def main():
     args = parse_args()
     test_df_paths = [
-        ('chrono_', f'{args.output_dir}/combined_model_results_backup.csv'),
-        ('plinder_', f'{args.output_dir}/plinder_test_split_results.csv'),
-        ('seq_sim_', f'{args.output_dir}/seq_sim_test_split_results.csv'),
+        # ('chrono_', 'data/test_set_chronological_split.csv'),
+        ('plinder_', 'data/test_set_plinder_split.csv'),
+        ('seq_sim_', 'data/test_set_seq_sim_split.csv'),
         
     ]
     for split_name, test_df_path in test_df_paths:
@@ -516,7 +719,7 @@ def main():
                 |(similarity_df.max_protein_similarity.isna())
                 ].system_id.values
             plinder_test_split = get_plinder_test_split(similarity_df, results_df).copy()
-            results_df_sequence = results_df[results_df['name'].isin(sequence_split_system_ids)].copy()
+            results_df_sequence = results_df[results_df['system_id'].isin(sequence_split_system_ids)].copy()
             print("\nFull test set:")
             compute_all_decoy_similarity_enrichment_factor(results_df, threshold=0.3)
             metrics = summarize_results(results_df, output_dir=args.output_dir)
@@ -531,22 +734,25 @@ def main():
             generate_plots_from_results_df(plinder_test_split, os.path.join(args.output_dir, "plinder"), vis_deciles=False, similarity_df=similarity_df)
             return
 
-        config = get_config_from_cpt_path(args.ckpt_path)
+        config = get_config_from_cpt_path(args.vox2smiles_ckpt_path)
         device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         combined_model = build_combined_model_from_config(
-            config, 
-            args.ckpt_path,
-            eval(args.dtype),
-            device
+            config=config, 
+            vox2smiles_ckpt_path=args.vox2smiles_ckpt_path,
+            poc2mol_ckpt_path=args.poc2mol_ckpt_path,
+            dtype=eval(args.dtype),
+            device=device
         )
         combined_model.eval()
+        combined_model.vox2smiles_model.eval()
+        combined_model.poc2mol_model.eval()
         complex_dataset_config = config['data']['train_dataset']['poc2mol_output_dataset']['complex_dataset']['config']
         if 'plinder' in args.pdb_dir or 'hiqbind' in args.pdb_dir:
             test_dataloader = build_parquet_test_dataloader(
                 complex_dataset_config, 
                 args.dtype,
                 args.pdb_dir,
-                system_ids=list(pd.read_csv(test_df_path)['name'].values)
+                system_ids=list(pd.read_csv(test_df_path)['system_id'].values)
             )
         else:
             test_dataloader = build_pdb_test_dataloader(
@@ -554,12 +760,14 @@ def main():
                 args.pdb_dir, 
                 args.dtype,
             )
-        # smiles_likelihood_results = all_decoy_smiles_likelihood_scoring(
-        #     combined_model, 
-        #     test_dataloader,
-        #     df = pd.read_csv(test_df_path),
-        #     output_dir=os.path.join(output_dir, "plixer_likelihood_scores"),
-        # )
+        smiles_likelihood_results = all_decoy_smiles_likelihood_scoring_batched(
+            combined_model, 
+            test_dataloader,
+            df = pd.read_csv(test_df_path),
+            output_dir=os.path.join(output_dir, "plixer_likelihood_scores"),
+            smiles_batch_size=24,
+            n_pocket_variants=1,
+        )
         results = evaluate_combined_model(
             combined_model, 
             test_dataloader,

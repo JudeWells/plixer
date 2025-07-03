@@ -20,7 +20,7 @@ from src.data.common.tokenizers.smiles_tokenizer import build_smiles_tokenizer
 from scripts.benchmarks.cache3_tanimoto_similarity import get_metrics, print_metrics
 
 
-def load_model(checkpoint_path, config_path):
+def load_vox2smiles_model(checkpoint_path, config_path):
     """Load the VoxToSmilesModel from a checkpoint."""
     # Load model config
     with open(config_path, 'r') as f:
@@ -422,7 +422,7 @@ def main(args):
     voxel_config = create_voxel_config(args.data_config)
     
     # Load model
-    model = load_model(args.checkpoint, args.model_config)
+    model = load_vox2smiles_model(args.checkpoint, args.model_config)
     model = model.to(device)
     print("Model loaded successfully")
     

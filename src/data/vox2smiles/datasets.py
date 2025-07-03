@@ -22,25 +22,39 @@ def get_collate_function(tokenizer):
     This function handles batching of voxelized molecules and tokenized SMILES strings.
     """
     
-    smiles_collator = DataCollatorWithPadding(tokenizer=tokenizer)
-    
-    def collate_fn(batch, smiles_collator=smiles_collator):
-        pixel_values = torch.stack([item['pixel_values'] for item in batch])
-        text_batch = {
-            'input_ids': torch.stack([item['input_ids'] for item in batch]),
-            'attention_mask': torch.stack([item['attention_mask'] for item in batch]),
+    pad_token_id = tokenizer.pad_token_id
+
+    def collate_fn(batch, pad_token_id=pad_token_id):
+        """Merge a list of dataset samples into a batch and trim trailing padding.
+        """
+        pixel_values = torch.stack([item["pixel_values"] for item in batch])  # (B, C, D, H, W)
+        input_ids = torch.stack([item["input_ids"] for item in batch])        # (B, L)
+        attention_mask = torch.stack([item["attention_mask"] for item in batch])  # (B, L)
+
+        poc2mol_loss = None
+        if "poc2mol_loss" in batch[0]:
+            poc2mol_loss = torch.tensor([item["poc2mol_loss"] for item in batch])
+        all_pad_positions = (input_ids == pad_token_id).all(dim=0)  # (L,)
+        if torch.any(all_pad_positions):
+            trim_len = torch.where(all_pad_positions)[0][0].item()
+            input_ids = input_ids[:, :trim_len]
+            attention_mask = attention_mask[:, :trim_len]
+
+        smiles_str = [item["smiles_str"] for item in batch]
+        # Optional decoy SMILES list (same for all items typically)
+        has_candidates = "candidate_tokens" in batch[0]
+
+        batch_dict = {
+            "pixel_values": pixel_values,
+            "input_ids": input_ids,
+            "attention_mask": attention_mask,
+            "smiles_str": smiles_str,
+            "poc2mol_loss": poc2mol_loss,
         }
-        if 'poc2mol_loss' in batch[0]:
-            text_batch['poc2mol_loss'] = torch.tensor([item['poc2mol_loss'] for item in batch])
-        text_batch = smiles_collator(text_batch)
-        smiles_str = [item['smiles_str'] for item in batch]
-        return {
-            'pixel_values': pixel_values,
-            'input_ids': text_batch['input_ids'],
-            'attention_mask': text_batch['attention_mask'],
-            'smiles_str': smiles_str,
-            'poc2mol_loss': text_batch.get('poc2mol_loss', None)
-        }
+        if has_candidates:
+            batch_dict["candidate_tokens"] = batch[0]["candidate_tokens"]
+            batch_dict["binder_indices"] = torch.tensor([item["binder_index"] for item in batch], dtype=torch.long)
+        return batch_dict
     
     return collate_fn
 
@@ -242,8 +256,6 @@ class ParquetVox2SmilesDataset(Dataset):
             # If we can't parse the mol block, try to create from SMILES
             smiles = mol_data['smiles']
             mol = Chem.MolFromSmiles(smiles)
-            
-            # If we still can't create a molecule, use a fallback (benzene)
             if mol is None:
                 return self.__getitem__(np.random.randint(0, len(self)))
 
@@ -300,6 +312,8 @@ class Poc2MolOutputDataset(Dataset):
         complex_dataset,
         max_smiles_len=200,
         ckpt_path: str = None,
+        decoy_smiles_list: list = None,
+        include_decoys: bool = True,
     ):
         self.device = "cuda" if torch.cuda.is_available() else "cpu"
         self.poc2mol_model = poc2mol_model.to(complex_dataset.config.dtype).to(self.device)
@@ -321,6 +335,14 @@ class Poc2MolOutputDataset(Dataset):
 
         self.poc2mol_model.eval()
 
+        self.include_decoys = include_decoys
+        if self.include_decoys:
+            assert decoy_smiles_list is not None, "decoy_smiles_list must be provided if include_decoys is True"
+            self.decoy_smiles_list = decoy_smiles_list
+            self.tokenize_decoys()
+        else:
+            self.decoy_smiles_list = []
+
     def __len__(self):
         return len(self.complex_dataset)
 
@@ -340,11 +362,16 @@ class Poc2MolOutputDataset(Dataset):
                 protein_voxel.unsqueeze(0),
                 labels=ground_truth_ligand_voxel.unsqueeze(0)
             )
-            loss = outputs['bce'] + outputs['dice']
-            predicted_ligand_voxel = outputs['pred_vox']
-            
-            predicted_ligand_voxel = torch.sigmoid(predicted_ligand_voxel.squeeze(0))
+            predicted_ligand_voxel = outputs['predicted_ligand_voxels'].squeeze(0)
 
+        binder_idx = None
+        if self.include_decoys:
+            # Find index of binder in global decoy list
+            binder_idx = self.decoy_smiles_list.index(smiles_str)
+            # candidate tokens are the full stacked tensors (shared across samples)
+            candidate_tokens = self.tokenized_decoy_smiles
+        else:
+            candidate_tokens = None
 
         smiles_str = self.tokenizer.bos_token + smiles_str + self.tokenizer.eos_token
         
@@ -356,15 +383,49 @@ class Poc2MolOutputDataset(Dataset):
             truncation=True,
             return_tensors="pt",
         ).to(self.device)
-        
-        # Return the predicted ligand voxel and tokenized SMILES string
-        return {
+
+        result = {
             "pixel_values": predicted_ligand_voxel,
             "input_ids": smiles["input_ids"].squeeze(),
             "attention_mask": smiles["attention_mask"].squeeze(),
             "smiles_str": smiles_str,
-            "poc2mol_loss": loss,
+            "poc2mol_loss": outputs['loss'].item(),
         }
+
+        if self.include_decoys:
+            result.update({
+                "candidate_tokens": candidate_tokens,  # dict with stacked tensors
+                "binder_index": binder_idx,
+            })
+
+        return result
+
+    def tokenize_decoys(self):
+        """Tokenize the global decoy SMILES list **once** and store stacked tensors.
+
+        The result is a dictionary with keys (input_ids, attention_mask, token_type_ids)
+        each mapping to a tensor of shape (N_decoys, L).
+        """
+        smiles_with_tokens = [
+            self.tokenizer.bos_token + smi + self.tokenizer.eos_token
+            for smi in self.decoy_smiles_list
+        ]
+
+        max_len = max(
+            len(self.tokenizer.tokenize(s, padding=False, truncation=False))
+            for s in smiles_with_tokens
+        )
+
+        tokenized = self.tokenizer(
+            smiles_with_tokens,
+            padding='max_length',
+            max_length=max_len,
+            truncation=True,
+            return_tensors='pt',
+        )
+
+        # Ensure tensors are on CPU to avoid unnecessary GPU memory duplication
+        self.tokenized_decoy_smiles = {k: v for k, v in tokenized.items()}
 
 
 class CombinedDataset(Dataset):
@@ -376,12 +437,12 @@ class CombinedDataset(Dataset):
         self,
         poc2mol_output_dataset,
         vox2smiles_dataset,
-        ratio=0.5, # probability of poc2mol
+        prob_poc2mol=0.5, # probability of poc2mol
         max_poc2mol_loss=1.2, # worst loss tolerated to train on poc2mol
     ):
         self.poc2mol_output_dataset = poc2mol_output_dataset
         self.vox2smiles_dataset = vox2smiles_dataset
-        self.ratio = ratio
+        self.prob_poc2mol = prob_poc2mol
         self.max_poc2mol_loss = max_poc2mol_loss
         # Calculate the number of samples from each dataset
         self.n_poc2mol = len(poc2mol_output_dataset)
@@ -402,10 +463,9 @@ class CombinedDataset(Dataset):
     def __getitem__(self, idx):
         """
         Get a sample from either the Poc2Mol output dataset or the Vox2Smiles dataset.
-        The probability of selecting from each dataset is proportional to the ratio.
         """
         # Determine which dataset to sample from
-        if np.random.random() < self.ratio:
+        if np.random.random() < self.prob_poc2mol:
             # Sample from Poc2Mol output dataset
             idx_poc2mol = idx % self.n_poc2mol
             result = self.poc2mol_output_dataset[idx_poc2mol]

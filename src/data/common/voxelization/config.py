@@ -72,8 +72,8 @@ class Poc2MolDataConfig(VoxelizationConfig):
     has_protein: bool = True
     # Indices of channels to use for ligand and protein
     # These are indices into the voxelized output, not the channel mappings above
-    ligand_channel_indices: List[int] = field(default_factory=lambda: [5, 6, 7, 8, 9, 10, 11, 12, 13, 14])
-    protein_channel_indices: List[int] = field(default_factory=lambda: [0, 1, 2, 3, 4, 5])
+    ligand_channel_indices: List[int] = field(default_factory=lambda: [4, 5, 6, 7, 8, 9, 10, 11, 12])
+    protein_channel_indices: List[int] = field(default_factory=lambda: [0, 1, 2, 3])
     
     fnames: Optional[List[str]] = None
     system_ids: Optional[List[str]] = None
@@ -86,6 +86,8 @@ class Vox2SmilesDataConfig(VoxelizationConfig):
     Extends the base VoxelizationConfig with Vox2Smiles-specific parameters.
     """
     batch_size: int = 24
+    val_batch_size: int = 100
+    secondary_val_batch_size: int = 10
     max_smiles_len: int = 200
     
     # For Vox2Smiles, we typically don't need protein channels

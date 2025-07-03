@@ -11,7 +11,7 @@ import torch
 from lightning import Callback, LightningDataModule, LightningModule, Trainer
 from lightning.pytorch.callbacks import LearningRateMonitor
 from lightning.pytorch.loggers import Logger
-from omegaconf import DictConfig
+from omegaconf import DictConfig, open_dict
 import math
 
 from src.utils import rich_utils
@@ -49,6 +49,23 @@ def train(cfg: DictConfig) -> Tuple[Dict[str, Any], Dict[str, Any]]:
 
     log.info("Instantiating callbacks...")
     callbacks: List[Callback] = instantiate_callbacks(cfg.get("callbacks"))
+
+    if cfg.get("logger") and "wandb" in cfg.get("logger"):
+        with open_dict(cfg):
+            if cfg.logger.wandb.get("name") is None:
+                num_params = sum(p.numel() for p in model.parameters())
+                if num_params >= 1_000_000_000:
+                    params_str = f"{num_params / 1_000_000_000:.3g}B"
+                else:
+                    params_str = f"{num_params / 1_000_000:.3g}M"
+                tags_str = ""
+                if cfg.get("tags"):
+                    tags_str = "||".join(cfg.tags)
+
+                if tags_str:
+                    cfg.logger.wandb.name = f"{tags_str}-{params_str}"
+                else:
+                    cfg.logger.wandb.name = params_str
 
     log.info("Instantiating loggers...")
     logger: List[Logger] = instantiate_loggers(cfg.get("logger"))

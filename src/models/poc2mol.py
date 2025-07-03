@@ -47,25 +47,24 @@ class ResUnetConfig:
 class Poc2Mol(LightningModule):
     def __init__(
         self,
-        loss,
         config: ResUnetConfig,
+        loss="BCEDiceLoss",
         lr: float = 1e-4,
         weight_decay: float = 0.0,
         scheduler: Optional[Dict[str, Any]] = None,
-        scheduler_name: str = None,  # legacy support
         num_training_steps: Optional[int] = 100000,
         num_warmup_steps: int = 0,
         num_decay_steps: int = 0,
         img_save_dir: str = None,
-        scheduler_kwargs: Dict[str, Any] = None,
         matmul_precision: str = 'high',
-        compile: bool = False,
         override_optimizer_on_load: bool = False,
+        visualise_train: bool = True,
         visualise_val: bool = True,
+        n_samples_for_visualisation: int = 2
     ) -> None:
         super().__init__()
         self.save_hyperparameters(logger=False)
-
+        assert config.final_sigmoid == False, "final_sigmoid must be False"
         self.model = ResidualUNetSE3D(
             in_channels=config.in_channels,
             out_channels=config.out_channels,
@@ -80,13 +79,10 @@ class Poc2Mol(LightningModule):
             dropout_prob=config.dropout_prob,
             basic_module=config.basic_module,
         )
-        with_logits = not config.final_sigmoid
-        self.loss = get_loss_criterion(loss, with_logits=with_logits)
+        self.loss = get_loss_criterion(loss, with_logits=True)
         self.lr = lr
         self.weight_decay = weight_decay
         self.scheduler_config = scheduler or {}
-        self.scheduler_name = scheduler_name  # legacy
-        self.scheduler_kwargs = scheduler_kwargs
         self.num_decay_steps = num_decay_steps
         self.num_training_steps = num_training_steps
         self.num_warmup_steps = num_warmup_steps
@@ -94,66 +90,141 @@ class Poc2Mol(LightningModule):
         torch.set_float32_matmul_precision(matmul_precision)
         self.override_optimizer_on_load = override_optimizer_on_load
         self.visualise_val = visualise_val
+        self.visualise_train = visualise_train
+        self.n_samples_for_visualisation = n_samples_for_visualisation
+        self.residual_unet_config = config
 
 
     def forward(self, prot_vox, labels=None):
-        pred_vox = self.model(x=prot_vox)
-        if labels is not None:
-            outputs = self.loss(pred_vox, labels)
-            outputs['pred_vox'] = pred_vox
-        else:
-            outputs = pred_vox
-        return outputs
+        """Run the UNet and (optionally) compute loss.
+
+        Parameters
+        ----------
+        prot_vox : torch.Tensor
+            Protein voxel tensor of shape ``[B, C, X, Y, Z]``.
+        labels : torch.Tensor | None, optional
+            Ground-truth ligand voxels.  If supplied, the method will also
+            compute the configured loss criterion.
+
+        Returns
+        -------
+        Dict[str, torch.Tensor]
+            The returned dictionary always contains at least the following keys
+
+            ``predicted_ligand_logits``
+                The raw UNet output (logits).
+
+            ``predicted_ligand_voxels``
+                Sigmoid-activated version of the logits which can be treated as
+                probabilities/occupancies.
+
+            ``loss`` *(optional)*
+                Total loss (only present when *labels* is given).
+
+            In training mode (i.e. when *labels* are provided) the dictionary
+            additionally contains one entry per individual loss component (e.g.
+            ``bce`` and ``dice``).
+        """
+        # ------------------------------------------------------------------
+        # Forward through the UNet
+        # ------------------------------------------------------------------
+        pred_logits = self.model(x=prot_vox)  # raw network output
+
+        # Always compute the sigmoid once so that we have a consistent
+        # probability representation available.
+        pred_vox = torch.sigmoid(pred_logits)
+
+        # If no labels are provided we are in inference mode – simply return
+        # the predictions.
+        if labels is None:
+            return {
+                "predicted_ligand_logits": pred_logits,
+                "predicted_ligand_voxels": pred_vox,
+            }
+
+        # ------------------------------------------------------------------
+        # Compute the per-component losses
+        # ------------------------------------------------------------------
+        result = self.loss(pred_logits, labels)
+
+        # Aggregate to a single scalar so that Lightning knows what to optimise
+        total_loss = None
+        if isinstance(result, dict):
+            total_loss = sum(result.values())
+
+        result["loss"] = total_loss
+        # Raw logits and sigmoid activations
+        result["predicted_ligand_logits"] = pred_logits
+        result["predicted_ligand_voxels"] = pred_vox
+
+
+        return result
 
     def training_step(self, batch, batch_idx):
         if "load_time" in batch:
             self.log("train/load_time", batch["load_time"].mean(), on_step=True, on_epoch=False, prog_bar=True)
+
         outputs = self(batch["protein"], labels=batch["ligand"])
-        loss = self.loss(outputs, batch["ligand"])
-        if isinstance(loss, dict):
-            running_loss = 0
-            for k,v in loss.items():
-                self.log(f"train/{k}", v, on_step=False, on_epoch=True, prog_bar=False)
-                self.log(f"train/batch_{k}", v, on_step=True, on_epoch=False, prog_bar=False)
-                running_loss += v
-            loss = running_loss
-        self.log("train/loss", loss, on_step=False, on_epoch=True, prog_bar=True)
-        self.log("train/batch_loss", loss, on_step=True, on_epoch=False, prog_bar=True)
-        self.log_channel_means(batch, outputs),
-        if batch_idx == 0:
-            # apply sigmoid to outputs for visualisation
-            outputs_for_viz = torch.sigmoid(outputs.detach())
-            visualise_batch(batch["ligand"], outputs_for_viz, batch["name"], save_dir=self.img_save_dir, batch=str(batch_idx))
+        # ``outputs`` is a dictionary – extract what we need
+        pred_vox = outputs["predicted_ligand_voxels"]
+        loss = outputs["loss"]
+
+        # Log each individual loss component (except the prediction tensor)
+        for k, v in outputs.items():
+            if k in {"predicted_ligand_voxels", "predicted_ligand_logits"}:
+                continue
+            # Per-batch logging
+            self.log(f"train/batch_{k}", v, on_step=True, on_epoch=False, prog_bar=(k=="loss"))
+            # Per-epoch logging
+            self.log(f"train/{k}", v, on_step=False, on_epoch=True, prog_bar=(k=="loss"))
+
+        # Channel statistics
+        self.log_channel_means(batch, pred_vox)
+
+        # Visualisation
+        if batch_idx == 0 and self.visualise_train:
+            try:
+                outputs_for_viz = pred_vox[:self.n_samples_for_visualisation].float().detach().cpu().numpy()
+                visualise_batch(batch["ligand"][:self.n_samples_for_visualisation], outputs_for_viz[:self.n_samples_for_visualisation], batch["name"][:self.n_samples_for_visualisation], save_dir=self.img_save_dir, batch=str(batch_idx))
+            except Exception as e:
+                print(f"Error visualising batch {batch_idx}: {e}")
+
         return loss
 
     def validation_step(self, batch, batch_idx):
         outputs = self(batch["protein"], labels=batch["ligand"])
-        loss = self.loss(outputs, batch["ligand"])
-        if isinstance(loss, dict):
-            running_loss = 0
-            for k,v in loss.items():
-                self.log(f"val/{k}", v, on_step=False, on_epoch=True, prog_bar=False)
-                running_loss += v
-            loss = running_loss
-        save_dir = f"{self.img_save_dir}/val"
+        pred_vox = outputs["predicted_ligand_voxels"]
+        loss = outputs["loss"]
+
+        # Log each component
+        for k, v in outputs.items():
+            if k in {"predicted_ligand_voxels", "predicted_ligand_logits"}:
+                continue
+            self.log(f"val/{k}", v, on_step=False, on_epoch=True, prog_bar=(k=="loss"))
+
+        # Optional visualisation
         if self.visualise_val and batch_idx in [0, 50, 100]:
-            outputs_for_viz = torch.sigmoid(outputs.detach())
-            lig, pred, names = batch["ligand"][:4], outputs_for_viz[:4], batch["name"][:4]
+            try:
+                save_dir = f"{self.img_save_dir}/val" if self.img_save_dir else None
+                outputs_for_viz = pred_vox[:self.n_samples_for_visualisation].float().detach().cpu().numpy()
+                lig, pred, names = batch["ligand"][:self.n_samples_for_visualisation], outputs_for_viz[:self.n_samples_for_visualisation], batch["name"][:self.n_samples_for_visualisation]
+            
+                visualise_batch(
+                    lig,
+                    pred,
+                        names,
+                        save_dir=save_dir,
+                        batch=str(batch_idx)
+                    )
+            except Exception as e:
+                print(f"Error visualising batch {batch_idx}: {e}")
 
-            visualise_batch(
-                lig,
-                pred,
-                names,
-                save_dir=save_dir,
-                batch=str(batch_idx)
-            )
-
-        self.log("val/loss", loss, on_step=False, on_epoch=True, prog_bar=True)
+        
         return loss
 
     def test_step(self, batch, batch_idx):
         outputs = self(batch["protein"], labels=batch["ligand"])
-        pass
+        return outputs["loss"]
 
     def configure_optimizers(self) -> Dict[str, Any]:
 
@@ -167,13 +238,6 @@ class Poc2Mol(LightningModule):
 
         # Resolve scheduler configuration
         scheduler_config = self.scheduler_config.copy()
-
-        # Fallback to legacy single-name arguments if new config not provided
-        if not scheduler_config and self.scheduler_name is not None:
-            scheduler_config = {
-                "type": self.scheduler_name,
-                "num_warmup_steps": self.num_warmup_steps,
-            }
 
         if not scheduler_config:
             # No scheduler requested – return optimizer only
@@ -249,15 +313,19 @@ class Poc2Mol(LightningModule):
             checkpoint["optimizer_states"] = []
             checkpoint["lr_schedulers"] = []
     
-    def log_channel_means(self, batch, outputs):
+    def log_channel_means(self, batch, pred_vox):
+        """Log mean values for each channel of protein, true ligand and prediction."""
         n_lig_channels = batch['ligand'].shape[1]
         self.log_dict({
-            f"channel_mean/ligand_{channel}": batch['ligand'][:,channel,...].mean().detach().item() for channel in range(n_lig_channels)
-            })
+            f"channel_mean/ligand_{channel}": batch['ligand'][:, channel, ...].mean().detach().item()
+            for channel in range(n_lig_channels)
+        })
         self.log_dict({
-            f"channel_mean/pred_ligand_{channel}": outputs[:,channel,...].mean().detach().item() for channel in range(n_lig_channels)
+            f"channel_mean/pred_ligand_{channel}": pred_vox[:, channel, ...].mean().detach().item()
+            for channel in range(n_lig_channels)
         })
         n_prot_channels = batch['protein'].shape[1]
         self.log_dict({
-            f"channel_mean/protein_{channel}": batch['protein'][:,channel,...].mean().detach().item() for channel in range(n_prot_channels)
+            f"channel_mean/protein_{channel}": batch['protein'][:, channel, ...].mean().detach().item()
+            for channel in range(n_prot_channels)
         })

@@ -121,7 +121,7 @@ class UNet3D(AbstractUNet):
     Uses `DoubleConv` as a basic_module and nearest neighbor upsampling in the decoder
     """
 
-    def __init__(self, in_channels, out_channels, final_sigmoid=True, f_maps=64, layer_order='gcr',
+    def __init__(self, in_channels, out_channels, final_sigmoid=False, f_maps=64, layer_order='gcr',
                  num_groups=8, num_levels=4, conv_padding=1,
                  conv_upscale=2, upsample='default', dropout_prob=0.1, **kwargs):
         super(UNet3D, self).__init__(in_channels=in_channels,
@@ -147,7 +147,7 @@ class ResidualUNet3D(AbstractUNet):
     Since the model effectively becomes a residual net, in theory it allows for deeper UNet.
     """
 
-    def __init__(self, in_channels, out_channels, final_sigmoid=True, f_maps=64, layer_order='gcr',
+    def __init__(self, in_channels, out_channels, final_sigmoid=False, f_maps=64, layer_order='gcr',
                  num_groups=8, num_levels=5, conv_padding=1,
                  conv_upscale=2, upsample='default', dropout_prob=0.1, **kwargs):
         super(ResidualUNet3D, self).__init__(in_channels=in_channels,
@@ -175,7 +175,7 @@ class ResidualUNetSE3D(AbstractUNet):
     net, in theory it allows for deeper UNet.
     """
 
-    def __init__(self, in_channels, out_channels, final_sigmoid=True, f_maps=64, layer_order='gcr',
+    def __init__(self, in_channels, out_channels, final_sigmoid=False, f_maps=64, layer_order='gcr',
                  num_groups=8, num_levels=5, conv_padding=1,
                  conv_upscale=2, upsample='default', dropout_prob=0.1, **kwargs):
         super(ResidualUNetSE3D, self).__init__(in_channels=in_channels,

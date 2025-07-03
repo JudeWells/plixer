@@ -1,0 +1,81 @@
+# Name: 7LD
+# Created by ModelServer 0.9.12
+
+# model_server_result.job_id: kI-xv7QuAu1s7mNBljlc5g
+# model_server_result.datetime_utc: 2025-06-10 10:55:24
+# model_server_result.server_version: 0.9.12
+# model_server_result.query_name: ligand
+# model_server_result.source_id: pdb-bcif
+# model_server_result.entry_id: 6wgt
+
+# model_server_params.name: atom_site
+# model_server_params.value: {"label_asym_id":"J","auth_seq_id":1201}
+
+# model_server_stats.io_time_ms: 64
+# model_server_stats.parse_time_ms: 12
+# model_server_stats.create_model_time_ms: 22
+# model_server_stats.query_time_ms: 319
+# model_server_stats.encode_time_ms: 0
+# model_server_stats.element_count: 24
+
+@<TRIPOS>MOLECULE
+7LD
+24 27 1
+****
+****
+
+@<TRIPOS>ATOM
+1 N1 5.295 6.833 51.626 N.ar 1 7LD 0.000
+2 N3 7.150 -0.410 57.040 N.am 1 7LD 0.000
+3 C4 4.070 6.781 53.889 C.ar 1 7LD 0.000
+4 C5 3.815 5.978 55.003 C.ar 1 7LD 0.000
+5 C6 5.144 4.268 53.979 C.ar 1 7LD 0.000
+6 C7 6.108 4.775 51.827 C.ar 1 7LD 0.000
+7 C8 6.066 5.899 50.989 C.ar 1 7LD 0.000
+8 C10 6.982 2.661 54.906 C.2 1 7LD 0.000
+9 C13 6.786 0.425 53.812 C.3 1 7LD 0.000
+10 C15 6.794 3.417 51.665 C.3 1 7LD 0.000
+11 C17 8.322 -1.076 56.463 C.3 1 7LD 0.000
+12 C20 6.072 -2.423 58.126 C.3 1 7LD 0.000
+13 N2 7.178 1.122 52.784 N.3 1 7LD 0.000
+14 C12 7.157 0.363 51.561 C.3 1 7LD 0.000
+15 C11 6.166 2.351 52.611 C.3 1 7LD 0.000
+16 C3 5.366 5.072 52.916 C.ar 1 7LD 0.000
+17 C1 4.859 6.312 52.838 C.ar 1 7LD 0.000
+18 C2 4.354 4.699 55.063 C.ar 1 7LD 0.000
+19 C9 5.837 2.866 53.891 C.2 1 7LD 0.000
+20 C14 7.251 1.310 55.107 C.3 1 7LD 0.000
+21 C16 6.566 0.777 56.402 C.2 1 7LD 0.000
+22 O1 5.608 1.337 56.860 O.2 1 7LD 0.000
+23 C19 6.564 -0.971 58.260 C.3 1 7LD 0.000
+24 C18 9.612 -0.259 56.535 C.3 1 7LD 0.000
+@<TRIPOS>BOND
+1 1 7 ar
+2 1 17 ar
+3 2 11 1
+4 2 21 1
+5 2 23 1
+6 3 17 ar
+7 3 4 ar
+8 4 18 ar
+9 5 16 ar
+10 5 19 1
+11 5 18 ar
+12 6 7 ar
+13 6 10 1
+14 6 16 ar
+15 8 19 2
+16 8 20 1
+17 9 13 1
+18 9 20 1
+19 10 15 1
+20 11 24 1
+21 12 23 1
+22 13 14 1
+23 13 15 1
+24 15 19 1
+25 16 17 ar
+26 20 21 1
+27 21 22 2
+@<TRIPOS>SUBSTRUCTURE
+1 7LD 1

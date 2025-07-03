@@ -297,7 +297,7 @@ def get_loss_criterion(loss_config, with_logits: bool = True):
     else:
         name = 'BCEDiceLoss'
 
-    ignore_index = loss_config.pop('ignore_index', None)
+    ignore_index = loss_config.pop('ignore_index', -100)  # ignore index not actually used for poc2mol 
     skip_last_target = loss_config.pop('skip_last_target', False)
     weight = loss_config.pop('weight', None)
 

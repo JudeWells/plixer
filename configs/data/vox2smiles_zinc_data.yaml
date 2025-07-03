@@ -12,3 +12,12 @@ train_dataset:
   random_translation: 6.0
   config: ${data.config}
 
+# Validation datasets
+val_datasets:
+  default_val:
+    _target_: src.data.vox2smiles.datasets.ParquetVox2SmilesDataset
+    data_path: ../zinc20_parquet
+    random_rotation: false
+    random_translation: 0.0
+    config: ${data.config}
+

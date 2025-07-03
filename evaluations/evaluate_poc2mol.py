@@ -50,7 +50,7 @@ def parse_args():
     return parser.parse_args()
 
 
-def load_model(ckpt_path):
+def load_poc2mol_model(ckpt_path):
     print(f"Loading model from {ckpt_path}")
     model = Poc2Mol.load_from_checkpoint(ckpt_path)
     model = model.to(torch.float16)
@@ -138,7 +138,7 @@ def main():
     dataset = load_dataset(config['data'])
     
     # Load model
-    model = load_model(args.ckpt_path)
+    model = load_poc2mol_model(args.ckpt_path)
 
     
     # Evaluate model

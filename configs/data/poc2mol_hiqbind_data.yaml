@@ -17,8 +17,8 @@ test_dataset:
 config:
   _target_: src.data.common.voxelization.config.Poc2MolDataConfig 
   remove_hydrogens: true
-  batch_size: 32
-  target_samples_per_batch: 128
+  batch_size: 64
+  target_samples_per_batch: 512
   ligand_channel_names:
     - carbon
     - oxygen

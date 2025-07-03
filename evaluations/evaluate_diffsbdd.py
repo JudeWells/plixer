@@ -167,7 +167,7 @@ if __name__ == "__main__":
                         help='Path to DiffSBDD directory containing generate_ligands.py')
     parser.add_argument('--checkpoint', type=str, default='checkpoints/crossdocked_fullatom_cond.ckpt',
                         help='Path to DiffSBDD checkpoint file')
-    parser.add_argument('--outdir', type=str, default='/mnt/disk2/VoxelDiffOuter/VoxelDiff2/evaluation_results/diffsbdd_results',
+    parser.add_argument('--outdir', type=str, default='/mnt/disk2/VoxelDiffOuter/plixer/evaluation_results/diffsbdd_results',
                         help='Directory to save generated ligands')
     parser.add_argument('--n_samples', type=int, default=1,
                         help='Number of samples to generate per protein')

@@ -11,8 +11,8 @@
 #$ -S /bin/bash
 #$ -N vox2smiCkpt2
 #$ -t 1
-#$ -o /SAN/orengolab/nsp13/VoxelDiffOuter/VoxelDiff2/qsub_logs/
-#$ -wd /SAN/orengolab/nsp13/VoxelDiffOuter/VoxelDiff2/
+#$ -o /SAN/orengolab/nsp13/VoxelDiffOuter/plixer/qsub_logs/
+#$ -wd /SAN/orengolab/nsp13/VoxelDiffOuter/plixer/
 #$ -j y
 date
 hostname
@@ -21,14 +21,12 @@ cat "$0" # print the contents of this file to the log
 echo "####################  QSUB SCRIPT END  ####################"
 conda activate vox
 which python
-ROOT_DIR='/SAN/orengolab/nsp13/VoxelDiffOuter/VoxelDiff2/'
+ROOT_DIR='/SAN/orengolab/nsp13/VoxelDiffOuter/plixer/'
 export HYDRA_FULL_ERROR=1
 export PYTHONPATH=$ROOT_DIR:$PYTHONPATH
 cd $ROOT_DIR
 python src/train.py \
-experiment=train_vox2smiles_combined \
+experiment=train_vox2smiles_combined_hiqbind \
 data.num_workers=0 \
-data.config.batch_size=2 \
-trainer.val_check_interval=5000 \
-ckpt_path="/SAN/orengolab/nsp13/VoxelDiffOuter/VoxelDiff2/logs/vox2smilesZincAndPoc2MolOutputs/runs/2025-03-23_20-02-10/checkpoints/interrupted.ckpt"
+ckpt_path=checkpoints/combined_protein_to_smiles/epoch_000.ckpt
 date

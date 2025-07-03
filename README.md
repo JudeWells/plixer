@@ -5,18 +5,12 @@
 ██╔═══╝      ██║         ██║     ██╔═██╗      ██╔══╝      ██╔══██╗    
 ██║          ███████╗    ██║    ██╔╝  ██╗     ███████╗    ██║  ██║    
 ╚═╝          ╚══════╝    ╚═╝    ╚═╝   ╚═╝     ╚══════╝    ╚═╝  ╚═╝
-
-██████       ██          ██╗    ██╗   ██╗     ███████     ██████ 
-██   ██      ██          ██║    ╚██╗ ██╔╝     ██          ██   ██
-██████       ██          ██║     ╚████╔╝      █████       ██████
-██           ██          ██║     ██╔═██╗      ██          ██   ██
-██           ███████     ██║    ██╔╝  ██╗     ███████     ██    ██ 
                                                          
 ```
 1.  **Clone the repository:**
     ```bash
-    git clone <your-repo-url>
-    cd VoxelDiff2
+    git clone git@github.com:JudeWells/plixer.git
+    cd plixer
     ```
 
 2.  **Install dependencies:**
@@ -33,6 +27,7 @@
     python download_checkpoints.py
     ```
 
+4. **Check instalation by running**
 
 
 # Poc2Smiles: End-to-End Protein-to-SMILES Model
@@ -69,8 +64,8 @@ This repository contains three models:
 
 ```bash
 # Clone the repository
-git clone https://github.com/judewells/VoxelDiff2
-cd VoxelDiff2
+git clone https://github.com/judewells/plixer
+cd plixer
 
 # Install dependencies
 pip install -r requirements.txt

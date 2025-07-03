@@ -17,6 +17,7 @@ from PIL import Image, ImageDraw, ImageFont
 from src.models.modeling_vit_3d import ViTModel3D
 from src.data.common.tokenizers.smiles_tokenizer import build_smiles_tokenizer
 from src.utils.metrics import accuracy_from_outputs, calculate_validity, calculate_novelty, calculate_uniqueness
+from sklearn.metrics import roc_auc_score
 
 
 class VoxToSmilesModel(LightningModule):
@@ -24,7 +25,8 @@ class VoxToSmilesModel(LightningModule):
         self,
         config,
         override_optimizer_on_load: bool = False,
-        compile: bool = False,
+        visualise_val: bool = True,
+        n_samples_for_validity_testing: int = 30,
     ) -> None:
         super().__init__()
         if "torch_dtype" not in config:
@@ -87,17 +89,33 @@ class VoxToSmilesModel(LightningModule):
         self.train_poc2mol_sample_counter = 0
         self.val_validity = MeanMetric()
         self.val_validity_poc2mol_output = MeanMetric()
+        self.visualise_val = visualise_val
+        self.n_samples_for_validity_testing = n_samples_for_validity_testing
+
     def forward(self, pixel_values, labels=None):
-        if labels is not None:
-            return self.model(pixel_values=pixel_values, labels=labels, return_dict=True)
-        else:
-            return self.model(pixel_values=pixel_values, return_dict=False)
+        if labels is None:
+            raise ValueError("Labels are required for Vox2Smiles forward method.")
+
+        decoder_attention_mask = (labels != self.tokenizer.pad_token_id).long()
+
+        masked_labels = labels.clone()
+        masked_labels[masked_labels == self.tokenizer.pad_token_id] = -100
+
+        return self.model(
+            pixel_values=pixel_values,
+            labels=masked_labels,
+            decoder_attention_mask=decoder_attention_mask,
+            return_dict=True,
+        )
 
     def training_step(self, batch, batch_idx):
         pixel_values = batch["pixel_values"]
         labels = batch["input_ids"]
         outputs = self(pixel_values, labels=labels)
         loss = outputs.loss
+        outputs.logits = outputs.logits.detach()
+        del outputs.encoder_last_hidden_state
+        del outputs.past_key_values
         self.train_loss(loss)
         self.log("train/loss", self.train_loss, on_step=False, on_epoch=True, prog_bar=True)
         self.log("train/batch_loss", loss, on_step=True, on_epoch=False, prog_bar=True)
@@ -107,7 +125,10 @@ class VoxToSmilesModel(LightningModule):
             elements_with_loss_mask = batch['poc2mol_loss'] > 0
             self.train_poc2mol_sample_counter += elements_with_loss_mask.int().sum()
             self.log("train/proportion_from_poc2mol", self.train_poc2mol_sample_counter / self.train_sample_counter, on_step=True, on_epoch=True, prog_bar=True, batch_size=len(batch['pixel_values']))
-            accuracy = accuracy_from_outputs(outputs, labels, start_ix=1, ignore_index=0)
+            masked_labels = labels.clone()
+            masked_labels[masked_labels == self.tokenizer.pad_token_id] = -100
+            with torch.no_grad():
+                accuracy = accuracy_from_outputs(outputs, masked_labels, start_ix=1, ignore_index=-100)
             if elements_with_loss_mask.int().sum() == 0:
                 self.log("train/accuracy", accuracy, on_step=True, on_epoch=True, prog_bar=True, batch_size=len(labels))
             elif elements_with_loss_mask.int().sum() == len(labels):
@@ -120,9 +141,12 @@ class VoxToSmilesModel(LightningModule):
     def validation_step(self, batch, batch_idx, dataloader_idx=0):
         pixel_values = batch["pixel_values"]
         labels = batch["input_ids"]
-        outputs = self(pixel_values, labels=labels)
+        masked_labels = labels.clone()
+        masked_labels[masked_labels == self.tokenizer.pad_token_id] = -100
+        outputs = self(pixel_values, labels=masked_labels)
         loss = outputs.loss
-        accuracy = accuracy_from_outputs(outputs, labels, start_ix=1, ignore_index=0)
+        with torch.no_grad():
+            accuracy = accuracy_from_outputs(outputs, masked_labels, start_ix=1, ignore_index=-100)
         if dataloader_idx == 0:
             self.val_loss(loss)
             self.log(f"val/loss", self.val_loss, on_step=False, on_epoch=True, prog_bar=True, add_dataloader_idx=False)
@@ -133,31 +157,32 @@ class VoxToSmilesModel(LightningModule):
             self.log(f"val/poc2mol_output/loss", self.val_loss_poc2mol_output, on_step=False, on_epoch=True, prog_bar=True, add_dataloader_idx=False)
             self.val_acc_poc2mol_output(accuracy)
             self.log(f"val/poc2mol_output/accuracy", self.val_acc_poc2mol_output, on_step=False, on_epoch=True, prog_bar=True, add_dataloader_idx=False)
-        if batch_idx % 100 == 0:
-            generated_smiles = self.generate_smiles(pixel_values)
+        if batch_idx == 0 or batch_idx * len(batch['pixel_values']) < self.n_samples_for_validity_testing:
+            generated_smiles = self.generate_smiles(pixel_values[:self.n_samples_for_validity_testing], max_attempts=1)
             if len(generated_smiles) > 0:
                 validity = calculate_validity(generated_smiles)
-                if dataloader_idx == 0:
-                    self.val_validity(validity)
-                    self.log(
-                        f"val/validity",
-                        self.val_validity,
-                        on_step=False,
-                        on_epoch=True,
-                        add_dataloader_idx=False,
-                        batch_size=len(generated_smiles)
-                    )
-                else:
-                    self.val_validity_poc2mol_output(validity)
-                    self.log(
-                        f"val/poc2mol_output/validity",
-                        self.val_validity_poc2mol_output,
-                        on_step=False,
-                        on_epoch=True,
-                        add_dataloader_idx=False,
-                        batch_size=len(generated_smiles)
-                    )
-        if batch_idx < 3:
+                if isinstance(validity, (int, float)) and not np.isnan(validity):
+                    if dataloader_idx == 0:
+                        self.val_validity(validity)
+                        self.log(
+                            "val/validity",
+                            self.val_validity,
+                            on_step=False,
+                            on_epoch=True,
+                            add_dataloader_idx=False,
+                            batch_size=len(generated_smiles)
+                        )
+                    else:
+                        self.val_validity_poc2mol_output(validity)
+                        self.log(
+                            "val/poc2mol_output/validity",
+                            self.val_validity_poc2mol_output,
+                            on_step=False,
+                            on_epoch=True,
+                            add_dataloader_idx=False,
+                            batch_size=len(generated_smiles)
+                        )
+        if batch_idx < 3 and self.visualise_val:
             try:
                 if dataloader_idx == 0:
                     sample_str = ""
@@ -166,6 +191,51 @@ class VoxToSmilesModel(LightningModule):
                 self.visualize_smiles(batch, sample_str=sample_str)
             except Exception as e:
                 print("Error visualizing smiles: ", e)
+
+        # ----------------------------------------------------------
+        # Decoy-based AUROC evaluation when candidate tokens provided
+        # ----------------------------------------------------------
+        if "candidate_tokens" in batch and "binder_indices" in batch:
+            candidate_tokens = batch["candidate_tokens"]  # dict of stacked tensors (N,L)
+            binder_indices = batch["binder_indices"]      # (B,)
+
+            cand_ids = candidate_tokens["input_ids"].to(pixel_values.device)  # (N,L)
+            pad_id = self.tokenizer.pad_token_id
+
+            N = cand_ids.size(0)
+            for i in range(pixel_values.size(0)):
+                lv = pixel_values[i : i + 1]  # (1,C,D,H,W)
+                vox_batch = lv.repeat(N, 1, 1, 1, 1)  # (N,C,D,H,W)
+                with torch.no_grad():
+                    outputs_full = self(vox_batch, labels=cand_ids)
+                    logits = outputs_full.logits  # (N,L,vocab)
+
+                    log_probs = torch.nn.functional.log_softmax(logits, dim=-1)
+
+                    masked_labels = cand_ids.clone()
+                    masked_labels[masked_labels == pad_id] = -100
+
+                    gather_idx = masked_labels.clone()
+                    gather_idx[gather_idx == -100] = 0
+                    token_log_probs = log_probs.gather(-1, gather_idx.unsqueeze(-1)).squeeze(-1)
+
+                    valid_mask = masked_labels != -100
+                    token_log_probs = token_log_probs * valid_mask
+                    seq_len = valid_mask.sum(dim=1).clamp(min=1)
+                    sample_ll = (token_log_probs.sum(dim=1) / seq_len).detach().cpu().numpy()  # (N,)
+
+                    true_ix = binder_indices[i].item()
+                    labels_vec = np.zeros(N)
+                    labels_vec[true_ix] = 1
+
+                    try:
+                        auc_val = roc_auc_score(labels_vec, sample_ll)
+                        self.log("val/decoy_roc_auc", auc_val, on_step=False, on_epoch=True, prog_bar=True)
+
+                        rank_of_hit = int(np.where((-sample_ll).argsort() == true_ix)[0])
+                        self.log("val/hit_rank_among_decoys", rank_of_hit, on_step=False, on_epoch=True)
+                    except ValueError:
+                        pass
         return loss
 
     def test_step(self, batch, batch_idx):
@@ -175,7 +245,10 @@ class VoxToSmilesModel(LightningModule):
         loss = outputs.loss
         self.test_loss(loss)
         self.log("test/loss", self.test_loss, on_step=False, on_epoch=True, prog_bar=True)
-        accuracy = accuracy_from_outputs(outputs, labels, start_ix=1, ignore_index=0)
+        masked_labels = labels.clone()
+        masked_labels[masked_labels == self.tokenizer.pad_token_id] = -100
+        with torch.no_grad():
+            accuracy = accuracy_from_outputs(outputs, masked_labels, start_ix=1, ignore_index=-100)
         self.test_acc(accuracy)
         self.log("test/accuracy", self.test_acc, on_step=False, on_epoch=True, prog_bar=True)
         return loss
@@ -273,7 +346,7 @@ class VoxToSmilesModel(LightningModule):
         except:
             return False
     
-    def repetition_score(self, smiles):
+    def repetition_count(self, smiles):
         max_reps = 0
         current_reps = 0
         for sm in smiles:
@@ -286,55 +359,67 @@ class VoxToSmilesModel(LightningModule):
                     else:
                         current_reps = 0
         return max_reps
-
-    def generate_smiles(self, pixel_values, max_length=200, max_retries=6, max_token_repeats=10, do_sample=False):
-        batch_size = pixel_values.shape[0]
-        results = [None] * batch_size
-        best_results = [None] * batch_size
-        min_repetition_scores = [float('inf')] * batch_size
-        need_generation = [True] * batch_size
-        attempts = [0] * batch_size
-        
-        while any(need_generation) and max(attempts) < max_retries:
-            indices_to_generate = [i for i, need_gen in enumerate(need_generation) if need_gen]
-            if len(indices_to_generate) < batch_size:
-                current_pixel_values = pixel_values[indices_to_generate]
-            else:
-                current_pixel_values = pixel_values
-            
-            current_do_sample = do_sample or max(attempts) > 0  # Use sampling after first attempt
-            tokens = self.model.generate(current_pixel_values, max_length=max_length, do_sample=current_do_sample)
-            predicted_smiles = self.tokenizer.batch_decode(tokens, skip_special_tokens=True)
-            predicted_smiles = [sm.replace(' ', '') for sm in predicted_smiles]
-            
-            for idx, gen_idx in enumerate(indices_to_generate):
-                attempts[gen_idx] += 1
-                current_smiles = predicted_smiles[idx]
-                
-                # Track this attempt if it's a valid SMILES string
-                if self.is_valid_smiles(current_smiles):
-                    # Check repetition score
-                    rep_score = self.repetition_score([current_smiles])
-                    
-                    # Update best result if this has a lower repetition score
-                    if rep_score < min_repetition_scores[gen_idx]:
-                        best_results[gen_idx] = current_smiles
-                        min_repetition_scores[gen_idx] = rep_score
-                    
-                    # If under threshold, consider this a success
-                    if rep_score <= max_token_repeats:
-                        results[gen_idx] = current_smiles
-                        need_generation[gen_idx] = False
-                    else:
-                        bp=1
-                else:
-                    if best_results[gen_idx] is None:
-                        best_results[gen_idx] = current_smiles
     
-        for i in range(batch_size):
-            if results[i] is None:
-                results[i] = best_results[i]
+    @torch.inference_mode()
+    def generate_smiles(
+            self, 
+            pixel_values, 
+            max_length=200, 
+            max_attempts=6, 
+            max_token_repeats=10, 
+            do_sample=False, 
+            temperature=1.0
+        ):
+        with torch.no_grad():
+            assert max_attempts > 0, "max_attempts must be greater than 0"
+            batch_size = pixel_values.shape[0]
+            results = [None] * batch_size
+            best_results = [None] * batch_size
+            min_repetition_scores = [float('inf')] * batch_size
+            need_generation = [True] * batch_size
+            attempts = [0] * batch_size
+            
+            while any(need_generation) and max(attempts) < max_attempts:
+                indices_to_generate = [i for i, need_gen in enumerate(need_generation) if need_gen]
+                if len(indices_to_generate) < batch_size:
+                    current_pixel_values = pixel_values[indices_to_generate]
+                else:
+                    current_pixel_values = pixel_values
+                
+                current_do_sample = do_sample or max(attempts) > 0  # Use sampling after first attempt
+                tokens = self.model.generate(current_pixel_values, max_length=max_length, do_sample=current_do_sample, temperature=temperature)
+                tokens = tokens.detach().cpu()
+                predicted_smiles = self.tokenizer.batch_decode(tokens, skip_special_tokens=True)
+                predicted_smiles = [sm.replace(' ', '') for sm in predicted_smiles]
+                del tokens
+                for idx, gen_idx in enumerate(indices_to_generate):
+                    attempts[gen_idx] += 1
+                    current_smiles = predicted_smiles[idx]
+                    
+                    # Track this attempt if it's a valid SMILES string
+                    if len(current_smiles) > 0 and self.is_valid_smiles(current_smiles):
+                        # Check repetition score
+                        rep_count = self.repetition_count([current_smiles])
+                        
+                        # Update best result if this has a lower repetition score
+                        if rep_count < min_repetition_scores[gen_idx]:
+                            best_results[gen_idx] = current_smiles
+                            min_repetition_scores[gen_idx] = rep_count
+                        
+                        # If under threshold, consider this a success
+                        if rep_count <= max_token_repeats:
+                            results[gen_idx] = current_smiles
+                            need_generation[gen_idx] = False
+                        
+
+                    else:
+                        if best_results[gen_idx] is None:
+                            best_results[gen_idx] = current_smiles
         
+            for i in range(batch_size):
+                if results[i] is None:
+                    results[i] = best_results[i]
+        torch.cuda.empty_cache()
         return results
 
     def visualize_smiles(self, batch, sample_str=""):
@@ -355,6 +440,10 @@ class VoxToSmilesModel(LightningModule):
 
         if images_to_log:
             wandb.log({"SMILES Comparison": images_to_log})
+            for img in images_to_log:
+                if hasattr(img, "image") and hasattr(img.image, "close"):
+                    img.image.close()
+            images_to_log.clear()
 
     def smiles_to_image(self, smiles, label):
         try:

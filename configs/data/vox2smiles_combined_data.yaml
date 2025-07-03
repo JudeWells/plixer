@@ -13,7 +13,7 @@ config:
   has_protein: false
 train_dataset:
   _target_: src.data.vox2smiles.datasets.CombinedDataset
-  ratio: 0.3 # probability of poc2mol
+  prob_poc2mol: 0.3 # probability of sampling from poc2mol
   max_poc2mol_loss: 0.7
   vox2smiles_dataset:
     _target_: src.data.vox2smiles.datasets.ParquetVox2SmilesDataset
@@ -69,4 +69,14 @@ train_dataset:
         box_dims: [24.0, 24.0, 24.0]
         random_rotation: true
         random_translation: 6.0
+        config: ${data.config}
+
+# Validation datasets mapping
+val_datasets:
+  default_val:
+    _target_: src.data.vox2smiles.datasets.ParquetVox2SmilesDataset
+    data_path: ../zinc20_parquet
+    random_rotation: false
+    random_translation: 0.0
+    config: ${data.config}
 

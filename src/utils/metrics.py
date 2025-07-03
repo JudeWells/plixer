@@ -18,9 +18,10 @@ def calculate_validity(smiles_list):
     
     valid_count = 0
     for smiles in smiles_list:
-        mol = Chem.MolFromSmiles(smiles)
-        if mol is not None:
-            valid_count += 1
+        if len(smiles) > 0:
+            mol = Chem.MolFromSmiles(smiles)
+            if mol is not None:
+                valid_count += 1
     
     return valid_count / len(smiles_list)
 
@@ -202,14 +203,14 @@ def accuracy_from_outputs(
     Returns:
         The accuracy of the target sequence.
     """
-    logits = model_outputs.logits
+    logits = model_outputs.logits.detach()
     # Shift so that tokens < n predict n
     shift_logits = logits[..., start_ix:, :].contiguous()  # b, L, V
     shift_labels = input_ids[..., start_ix:].contiguous()  # b, L
     # Ensure tensors are on the same device
     shift_labels = shift_labels.to(shift_logits.device)
     non_padding_mask = shift_labels != ignore_index
-    # TODO: we might also want to ignore gaps...
+    
     accuracy = (shift_logits.argmax(-1) == shift_labels).float()
     if dataset_names is not None:
         ds_accuracies = {}

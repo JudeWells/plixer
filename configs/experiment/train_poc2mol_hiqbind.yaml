@@ -8,7 +8,14 @@ defaults:
 
 
 task_name: "poc2mol"
-tags: ["dev"]
+tags:
+  - "${task_name}"
+  - "hiqbind"
+  - "lr${model.lr}" 
+  - "acc${trainer.accumulate_grad_batches}"
+  - "batch${data.config.batch_size}"
+  - "wd${model.weight_decay}"
+
 train: True
 test: True
 optimized_metric: "val/loss"
@@ -35,5 +42,6 @@ model:
 trainer:
   val_check_interval: null
   check_val_every_n_epoch: 2
+  accumulate_grad_batches: 8
 
 ckpt_path: null

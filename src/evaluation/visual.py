@@ -182,11 +182,19 @@ def visualise_batch(lig, pred, names, angles=None, save_dir=None, batch='none', 
             label_height, label_width, _ = label_img.shape
             lower = label_height // 4
             upper = label_height - lower
-            axs[i, ang_idx * 2].imshow(label_img)
-            axs[i, ang_idx * 2].set_xlim(lower, upper)  # Updated cropping
-            axs[i, ang_idx * 2].set_ylim(upper, lower)
-            axs[i, ang_idx * 2].axis('off')
-            axs[i, ang_idx * 2].set_title(f'Target {single_name}:{angle}')
+            if len(names) == 1:
+                axs[ang_idx * 2].imshow(label_img)
+                axs[ang_idx * 2].set_xlim(lower, upper)  # Updated cropping
+                axs[ang_idx * 2].set_ylim(upper, lower)
+                axs[ang_idx * 2].axis('off')
+                axs[ang_idx * 2].set_title(f'Target {single_name}:{angle}')
+
+            else:
+                axs[i, ang_idx * 2].imshow(label_img)
+                axs[i, ang_idx * 2].set_xlim(lower, upper)  # Updated cropping
+                axs[i, ang_idx * 2].set_ylim(upper, lower)
+                axs[i, ang_idx * 2].axis('off')
+                axs[i, ang_idx * 2].set_title(f'Target {single_name}:{angle}')
 
             # visualise the prediction
             pred_save_path = os.path.join(pred_save_dir, f"{single_name}_{ang_idx}.png")
@@ -208,11 +216,18 @@ def visualise_batch(lig, pred, names, angles=None, save_dir=None, batch='none', 
             pred_height, pred_width, _ = pred_img.shape
             lower = pred_height // 4
             upper = pred_height - lower
-            axs[i, ang_idx * 2 + 1].imshow(pred_img)
-            axs[i, ang_idx * 2 + 1].set_xlim(lower, upper)  # Updated cropping
-            axs[i, ang_idx * 2 + 1].set_ylim(upper, lower)
-            axs[i, ang_idx * 2 + 1].axis('off')
-            axs[i, ang_idx * 2 + 1].set_title(f'Pred {single_name}:{angle}')
+            if len(names) == 1:
+                axs[ang_idx * 2 + 1].imshow(pred_img)
+                axs[ang_idx * 2 + 1].set_xlim(lower, upper)  # Updated cropping
+                axs[ang_idx * 2 + 1].set_ylim(upper, lower)
+                axs[ang_idx * 2 + 1].axis('off')
+                axs[ang_idx * 2 + 1].set_title(f'Pred {single_name}:{angle}')
+            else:
+                axs[i, ang_idx * 2 + 1].imshow(pred_img)
+                axs[i, ang_idx * 2 + 1].set_xlim(lower, upper)  # Updated cropping
+                axs[i, ang_idx * 2 + 1].set_ylim(upper, lower)
+                axs[i, ang_idx * 2 + 1].axis('off')
+                axs[i, ang_idx * 2 + 1].set_title(f'Pred {single_name}:{angle}')
     shutil.rmtree(pred_save_dir)
     plt.tight_layout()
     plt.subplots_adjust(wspace=0.1, hspace=0.1)

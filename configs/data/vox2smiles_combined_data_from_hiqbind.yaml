@@ -1,21 +1,29 @@
 # data config for training vox2smiles model on zinc data and outputs of poc2mol model
 _target_: src.data.vox2smiles.data_module.Vox2SmilesDataModule
 defaults:
+  - datasets@train_dataset.poc2mol_output_dataset.complex_dataset: complex_dataset
+  - datasets@val_datasets.roc_auc_plinder.complex_dataset: complex_dataset
+  - datasets@val_datasets.hiqbind_val.complex_dataset: complex_dataset
   - /model@train_dataset.poc2mol_output_dataset.poc2mol_model: poc2mol
-  - /model@secondary_val_dataset.poc2mol_model: poc2mol
+  - /model@val_datasets.hiqbind_val.poc2mol_model: poc2mol
+  - /model@val_datasets.roc_auc_plinder.poc2mol_model: poc2mol
+  - datasets@val_datasets.roc_auc_plinder.decoy_smiles_list: plinder_decoy_smiles
+  - datasets@val_datasets.roc_auc_plinder.complex_dataset.config.system_ids: plinder_system_ids
   - _self_
   # - /data@train_dataset.poc2mol_output_dataset.complex_dataset: poc2mol_data
 data_path: "../geom/rdkit_folder/drugs"
 num_workers: 0
 config:
   _target_: src.data.common.voxelization.config.Vox2SmilesDataConfig
-  batch_size: 2
+  batch_size: 64
+  val_batch_size: 200
+  secondary_val_batch_size: 50
   max_smiles_len: 200
   has_protein: false
 train_dataset:
   _target_: src.data.vox2smiles.datasets.CombinedDataset
-  ratio: 0.75 # probability of poc2mol
-  max_poc2mol_loss: 0.78
+  prob_poc2mol: 0.75 # probability of poc2mol
+  max_poc2mol_loss: 0.79
   vox2smiles_dataset:
     _target_: src.data.vox2smiles.datasets.ParquetVox2SmilesDataset
     data_path: ../zinc20_parquet
@@ -24,97 +32,24 @@ train_dataset:
     config: ${data.config}
   poc2mol_output_dataset:
     _target_: src.data.vox2smiles.datasets.Poc2MolOutputDataset
-    ckpt_path: logs/poc2mol/runs/2025-04-21_18-13-26/checkpoints/epoch_173.ckpt
+    decoy_smiles_list: null
+    include_decoys: false  # set false to exclude decoy scoring
+    ckpt_path: checkpoints/poc_vox_to_mol_vox/epoch_173.ckpt
+
+val_datasets:
+  roc_auc_plinder:
+    _target_: src.data.vox2smiles.datasets.Poc2MolOutputDataset
+    include_decoys: True
+    ckpt_path: checkpoints/poc_vox_to_mol_vox/epoch_173.ckpt
     complex_dataset:
-      _target_: src.data.poc2mol.datasets.ParquetDataset
-      data_path: ../hiqbind/parquet/train
-      translation: 6.0
-      rotate: true
-      config: 
-        _target_: src.data.common.voxelization.config.Poc2MolDataConfig
-        batch_size: 1
-        has_protein: true
-        protein_channel_indices: [0, 1, 2, 3]
-        protein_channels:
-          0: ["C"]
-          1: ["O"]
-          2: ["N"]
-          3: ["S"]
-        protein_channel_names:
-          - carbon
-          - oxygen
-          - nitrogen
-          - sulphur
-        ligand_channel_indices: [4, 5, 6, 7, 8, 9, 10, 11, 12]
-        ligand_channels:
-          0: ["C"]
-          1: ["O"]
-          2: ["N"]
-          3: ["S"]
-          4: ["Cl"]
-          5: ["F"]
-          6: ["I"]
-          7: ["Br"]
-          8: ["C", "H", "O", "N", "S", "Cl", "F", "I", "Br"]
-        ligand_channel_names:
-          - carbon
-          - oxygen
-          - nitrogen
-          - sulphur
-          - chlorine
-          - fluorine
-          - iodine
-          - bromine
-          - other
-        vox_size: 0.75
-        box_dims: [24.0, 24.0, 24.0]
-        random_rotation: true
-        random_translation: 6.0
-secondary_val_dataset:
-  _target_: src.data.vox2smiles.datasets.Poc2MolOutputDataset
-  ckpt_path: logs/poc2mol/runs/2025-04-21_18-13-26/checkpoints/epoch_173.ckpt
-  complex_dataset:
-    _target_: src.data.poc2mol.datasets.ParquetDataset
-    data_path: ../hiqbind/parquet/val
-    translation: 6.0
-    rotate: true
-    config: 
-      _target_: src.data.common.voxelization.config.Poc2MolDataConfig
-      batch_size: 1
-      has_protein: true
-      protein_channel_indices: [0, 1, 2, 3]
-      protein_channels:
-        0: ["C"]
-        1: ["O"]
-        2: ["N"]
-        3: ["S"]
-      protein_channel_names:
-        - carbon
-        - oxygen
-        - nitrogen
-        - sulphur
-      ligand_channel_indices: [4, 5, 6, 7, 8, 9, 10, 11, 12]
-      ligand_channels:
-        0: ["C"]
-        1: ["O"]
-        2: ["N"]
-        3: ["S"]
-        4: ["Cl"]
-        5: ["F"]
-        6: ["I"]
-        7: ["Br"]
-        8: ["C", "H", "O", "N", "S", "Cl", "F", "I", "Br"]
-      ligand_channel_names:
-        - carbon
-        - oxygen
-        - nitrogen
-        - sulphur
-        - chlorine
-        - fluorine
-        - iodine
-        - bromine
-        - other
-      vox_size: 0.75
-      box_dims: [24.0, 24.0, 24.0]
-      random_rotation: true
-      random_translation: 6.0
+      use_cluster_member_zero: true
+      data_path: '../hiqbind/parquet/test'
+    
+  hiqbind_val:
+    _target_: src.data.vox2smiles.datasets.Poc2MolOutputDataset
+    decoy_smiles_list: null
+    include_decoys: false
+    ckpt_path: checkpoints/poc_vox_to_mol_vox/epoch_173.ckpt
+    complex_dataset:
+      use_cluster_member_zero: true
+      data_path: ../hiqbind/parquet/val
