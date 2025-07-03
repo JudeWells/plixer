@@ -340,6 +340,7 @@ class Poc2Mol(LightningModule):
         # ------------ masked loss (same as training) -------------
         outputs_masked = self(batch["protein"], labels=batch["ligand"])
         masked_loss = outputs_masked["loss"]
+        self.log(f"val/loss", masked_loss, on_step=False, on_epoch=True, prog_bar=True)  # always log this for checkpoints etc.
 
         for k, v in outputs_masked.items():
             if k in {"predicted_ligand_voxels", "predicted_ligand_logits"}:
