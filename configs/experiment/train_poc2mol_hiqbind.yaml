@@ -7,7 +7,7 @@ defaults:
   - override /logger: wandb.yaml
 
 
-task_name: "poc2mol"
+task_name: "DIFFUSION_poc2mol"
 tags:
   - "${task_name}"
   - "hiqbind"
@@ -25,9 +25,9 @@ logger:
   wandb:
     project: "poc2mol"
     entity: "cath"
-    group: "poc2mol"
+    group: "poc2mol_mask_diffusion"
     job_type: "train"
-    tags: ["dev"]
+    tags: ${tags}
     save_dir: "${paths.output_dir}"
     offline: False
     id: null # pass correct id to resume experiment!
