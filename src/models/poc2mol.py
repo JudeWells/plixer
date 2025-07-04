@@ -67,7 +67,7 @@ class Poc2Mol(LightningModule):
         # ---------------- Critic specific ------------------
         use_critic: bool = False,
         critic_loss_weight: float = 1.0,
-        critic_incorrect_threshold: float = 0.5,
+        critic_incorrect_threshold: float = 0.7,
         # Determines the maximum number of voxels that can be intentionally
         # corrupted for critic training.  It is expressed as a fraction of the
         # *current* number of masked voxels (1.0 = up to n_masked).  The actual
@@ -303,14 +303,15 @@ class Poc2Mol(LightningModule):
 
             # ---------------- Logging masked proportion ----------------
             try:
-                masked_frac = (ligand_with_mask[:, -1] > 0.5).float().mean()
-                self.log(f"infer/masked_frac_t{step_idx+1}", masked_frac, on_step=False, on_epoch=False, prog_bar=False)
+                masked_frac = (ligand_with_mask[:, -1] > 0.5).float().mean().item()
+                self.log(f"infer/masked_frac_t{step_idx+1}", masked_frac, on_step=True, on_epoch=True, prog_bar=False)
             except Exception:
                 # In case self.log is unavailable (e.g. outside Lightning trainer context)
                 pass
 
         # ---------------- Final unconditional unmasking ----------------
         remaining_masks = ligand_with_mask[:, -1] > 0.5  # bool
+        self.log("infer/masked_frac_final", remaining_masks.float().mean().item(), on_step=True, on_epoch=True, prog_bar=False)
         if remaining_masks.any():
             # Second pass of the generator to fill *all* remaining masked voxels.
             model_input = torch.cat([prot_vox, ligand_with_mask], dim=1)
@@ -339,8 +340,8 @@ class Poc2Mol(LightningModule):
 
             # Log final masked fraction (should be zero)
             try:
-                final_mask_frac = (ligand_with_mask[:, -1] > 0.5).float().mean()
-                self.log("infer/masked_frac_final", final_mask_frac, on_step=False, on_epoch=False, prog_bar=False)
+                final_mask_frac = (ligand_with_mask[:, -1] > 0.5).float().mean().item()
+                self.log("infer/masked_frac_final", final_mask_frac, on_step=True, on_epoch=False, prog_bar=False)
             except Exception:
                 pass
 
@@ -484,7 +485,7 @@ class Poc2Mol(LightningModule):
 
     def training_step(self, batch, batch_idx):
         if "load_time" in batch:
-            self.log("train/load_time", batch["load_time"].mean(), on_step=True, on_epoch=False, prog_bar=True)
+            self.log("train/load_time", batch["load_time"].mean().item(), on_step=True, on_epoch=False, prog_bar=True)
 
         outputs = self(batch["protein"], labels=batch["ligand"])
         # ``outputs`` is a dictionary – extract what we need
