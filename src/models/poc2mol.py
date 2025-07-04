@@ -64,6 +64,16 @@ class Poc2Mol(LightningModule):
         visualise_val: bool = True,
         n_samples_for_visualisation: int = 2,
         unmasking_strategy: str = "random",  # "confidence" or "random"
+        # ---------------- Critic specific ------------------
+        use_critic: bool = False,
+        critic_loss_weight: float = 1.0,
+        critic_incorrect_threshold: float = 0.5,
+        # Determines the maximum number of voxels that can be intentionally
+        # corrupted for critic training.  It is expressed as a fraction of the
+        # *current* number of masked voxels (1.0 = up to n_masked).  The actual
+        # number is sampled uniformly between 0 and this maximum on every
+        # iteration.
+        max_corrupt_ratio: float = 1.0,
     ) -> None:
         super().__init__()
         self.save_hyperparameters(logger=False)
@@ -110,6 +120,50 @@ class Poc2Mol(LightningModule):
         self.discretize_threshold = 0.5
         # Probability below this is interpreted as EMPTY during sampling
         self.empty_threshold = 0.5
+
+        # ---------------- Critic initialisation ----------------
+        self.use_critic = use_critic
+        self.critic_loss_weight = critic_loss_weight
+        self.critic_incorrect_threshold = critic_incorrect_threshold
+        self.max_corrupt_ratio = max_corrupt_ratio
+
+        if self.use_critic:
+            # Duplicate architecture but with single output channel (incorrect / correct)
+            self.critic = ResidualUNetSE3D(
+                in_channels=config.in_channels + config.out_channels + 1,
+                out_channels=1,
+                final_sigmoid=False,
+                f_maps=config.f_maps,
+                layer_order=config.layer_order,
+                num_groups=config.num_groups,
+                num_levels=config.num_levels,
+                conv_padding=config.conv_padding,
+                conv_upscale=config.conv_upscale,
+                upsample=config.upsample,
+                dropout_prob=config.dropout_prob,
+                basic_module=config.basic_module,
+            )
+
+            # Running estimates (per timestep) of how many voxels are re-masked
+            # by the critic during *inference*.  We store count, mean and the
+            # "M2" value required for Welford's online variance algorithm.  All
+            # tensors have shape ``[T+1]`` so they can be directly indexed by
+            # timestep ``t``.
+            self.register_buffer(
+                "critic_rm_count",
+                torch.zeros(self.num_diffusion_steps + 1, dtype=torch.long),
+                persistent=False,
+            )
+            self.register_buffer(
+                "critic_rm_mean",
+                torch.zeros(self.num_diffusion_steps + 1),
+                persistent=False,
+            )
+            self.register_buffer(
+                "critic_rm_M2",
+                torch.zeros(self.num_diffusion_steps + 1),
+                persistent=False,
+            )
 
     # ------------------------------------------------------------------
     # Helper functions for discrete masking diffusion
@@ -182,7 +236,7 @@ class Poc2Mol(LightningModule):
         mask_channel = torch.ones((B, 1, D, H, W), device=device)
         ligand_with_mask = torch.cat([ligand_part, mask_channel], dim=1)
 
-        for _ in range(num_steps):
+        for step_idx in range(num_steps):
             model_input = torch.cat([prot_vox, ligand_with_mask], dim=1)
             logits = self.model(model_input)
             probs = torch.sigmoid(logits)  # [B,9,D,H,W]
@@ -230,6 +284,68 @@ class Poc2Mol(LightningModule):
                         ligand_with_mask[b, best_ch, z, y, x] = 1.0  # assign atom
                     # otherwise low confidence for both, keep empty
                     ligand_with_mask[b, -1, z, y, x] = 0  # clear mask regardless
+
+            # ---------------- Critic re-masking (inference) ----------------
+            if self.use_critic:
+                critic_input = torch.cat([prot_vox, ligand_with_mask], dim=1)
+                critic_logits = self.critic(critic_input)
+                critic_probs = torch.sigmoid(critic_logits).squeeze(1)  # [B,D,H,W]
+
+                # Identify voxels the critic believes are incorrect *and* are
+                # currently unmasked (mask channel == 0)
+                current_unmasked = ligand_with_mask[:, -1] < 0.5  # bool
+                re_mask_positions = (critic_probs > self.critic_incorrect_threshold) & current_unmasked
+
+                # Apply re-masking: clear ligand channels & set mask channel
+                # to 1 at those positions.
+                ligand_with_mask[:, :-1][re_mask_positions.unsqueeze(1).expand(-1, C, -1, -1, -1)] = 0
+                ligand_with_mask[:, -1][re_mask_positions] = 1.0
+
+            # ---------------- Logging masked proportion ----------------
+            try:
+                masked_frac = (ligand_with_mask[:, -1] > 0.5).float().mean()
+                self.log(f"infer/masked_frac_t{step_idx+1}", masked_frac, on_step=False, on_epoch=False, prog_bar=False)
+            except Exception:
+                # In case self.log is unavailable (e.g. outside Lightning trainer context)
+                pass
+
+        # ---------------- Final unconditional unmasking ----------------
+        remaining_masks = ligand_with_mask[:, -1] > 0.5  # bool
+        if remaining_masks.any():
+            # Second pass of the generator to fill *all* remaining masked voxels.
+            model_input = torch.cat([prot_vox, ligand_with_mask], dim=1)
+            logits = self.model(model_input)
+            probs = torch.sigmoid(logits)
+
+            # Prepare helper tensors
+            conf_atom, atom_idx = probs.max(dim=1)
+            empty_prob = (1.0 - probs.sum(dim=1)).clamp(min=0.0, max=1.0)
+
+            coords = remaining_masks.nonzero(as_tuple=False)  # [N,4] (B,z,y,x)
+            for coord in coords:
+                b, z, y, x = coord.tolist()
+                best_ch = atom_idx[b, z, y, x].item()
+                best_conf_atom = probs[b, best_ch, z, y, x].item()
+                best_conf_empty = empty_prob[b, z, y, x].item()
+
+                # Decide assignment (same rule as earlier)
+                if best_conf_empty >= best_conf_atom and best_conf_empty >= self.empty_threshold:
+                    # leave empty (all zeros)
+                    pass
+                elif best_conf_atom >= self.empty_threshold:
+                    ligand_with_mask[b, best_ch, z, y, x] = 1.0
+                # Clear mask channel in all cases
+                ligand_with_mask[b, -1, z, y, x] = 0.0
+
+            # Log final masked fraction (should be zero)
+            try:
+                final_mask_frac = (ligand_with_mask[:, -1] > 0.5).float().mean()
+                self.log("infer/masked_frac_final", final_mask_frac, on_step=False, on_epoch=False, prog_bar=False)
+            except Exception:
+                pass
+
+            # Safety check – no masks should remain
+            assert not (ligand_with_mask[:, -1] > 0.5).any(), "sample_ligand must return with zero masks remaining"
 
         return ligand_with_mask[:, :-1]  # drop mask channel
 
@@ -281,8 +397,28 @@ class Poc2Mol(LightningModule):
         device = ligand_onehot.device
         t = torch.randint(1, self.num_diffusion_steps + 1, (B,), device=device)
 
-        # 3) mask occupied voxels
-        mask_pos = self._generate_random_mask(ligand_onehot, t)  # [B,D,H,W] bool
+        # 3) mask occupied voxels + extra masks based on critic statistics
+        base_mask = self._generate_random_mask(ligand_onehot, t)  # [B,D,H,W] bool
+
+        if self.use_critic:
+            extra_counts = self._sample_extra_mask_counts(t)  # [B]
+            # Add the requested number of additional masked voxels per sample
+            mask_pos = base_mask.clone()
+            B, D, H, W = mask_pos.shape
+            for b in range(B):
+                n_extra = extra_counts[b].item()
+                if n_extra == 0:
+                    continue
+                # Identify currently *unmasked* voxels
+                available = (~mask_pos[b]).nonzero(as_tuple=False)
+                if available.size(0) == 0:
+                    continue
+                n_extra = min(n_extra, available.size(0))
+                perm = torch.randperm(available.size(0), device=prot_vox.device)
+                extra_sel = available[perm[:n_extra]]
+                mask_pos[b, extra_sel[:, 0], extra_sel[:, 1], extra_sel[:, 2]] = True
+        else:
+            mask_pos = base_mask
 
         # 4) create masked ligand input (add mask channel)
         ligand_masked = self._apply_mask(ligand_onehot, mask_pos)  # [B,10,D,H,W]
@@ -296,9 +432,50 @@ class Poc2Mol(LightningModule):
         loss_dict = self._masked_bce_dice_loss(pred_logits, ligand_onehot, mask_pos)
         total_loss = sum(loss_dict.values())
 
+        # ---------------- Critic training ----------------
+        if self.use_critic:
+            with torch.no_grad():
+                # Detach predictions before using them to corrupt the ligand so
+                # the generator is *not* updated through the critic pathway.
+                pred_onehot = self._discretise_ligand(torch.sigmoid(pred_logits).detach(), threshold=self.discretize_threshold)
+
+            ligand_corrupted = self._corrupt_ligand(ligand_onehot, pred_onehot, mask_pos)
+
+            # Critic input: protein + (corrupted ligand + mask channel)
+            ligand_corrupted_with_mask = self._apply_mask(ligand_corrupted, mask_pos)
+            critic_input = torch.cat([prot_vox, ligand_corrupted_with_mask], dim=1)
+
+            critic_logits = self.critic(critic_input)
+            # Ground-truth incorrect mask: 1 if ligand_corrupted differs from target
+            incorrect_gt = (ligand_corrupted != ligand_onehot).any(dim=1, keepdim=True).float()
+
+            unmasked_mask = (~mask_pos).unsqueeze(1).float()
+
+            critic_bce = F.binary_cross_entropy_with_logits(
+                critic_logits, incorrect_gt, reduction='none'
+            )
+            critic_bce = (critic_bce * unmasked_mask).sum() / unmasked_mask.sum().clamp_min(1.0)
+
+            # Update running statistics of re-masked voxels (how many the critic
+            # *would* re-mask).  We threshold the critic prediction to compute a
+            # count for statistics only – this has no effect on gradients.
+            with torch.no_grad():
+                critic_probs = torch.sigmoid(critic_logits)
+                re_mask_pred = (critic_probs > self.critic_incorrect_threshold) & (unmasked_mask > 0)
+                re_mask_counts = re_mask_pred.sum(dim=(1, 2, 3, 4)).long()  # [B]
+                critic_remask_prop = re_mask_pred.sum().item() / max(1, unmasked_mask.sum().item())
+                re_mask_accuracy = ((re_mask_pred == incorrect_gt)*unmasked_mask).sum().item() / max(1, unmasked_mask.sum().item())
+                self._update_critic_stats(t, re_mask_counts)
+
+            # Combine losses
+            loss_dict["critic_bce"] = critic_bce
+            total_loss = total_loss + self.critic_loss_weight * critic_bce
+
         output = {
             "predicted_ligand_logits": pred_logits,
             "predicted_ligand_voxels": pred_vox,
+            "critic_remask_prop": critic_remask_prop,
+            "critic_remask_accuracy": re_mask_accuracy,
             "loss": total_loss,
         }
         if isinstance(loss_dict, dict):
@@ -330,7 +507,13 @@ class Poc2Mol(LightningModule):
         if batch_idx == 0 and self.visualise_train:
             try:
                 outputs_for_viz = pred_vox[:self.n_samples_for_visualisation].float().detach().cpu().numpy()
-                visualise_batch(batch["ligand"][:self.n_samples_for_visualisation], outputs_for_viz[:self.n_samples_for_visualisation], batch["name"][:self.n_samples_for_visualisation], save_dir=self.img_save_dir, batch=str(batch_idx))
+                visualise_batch(
+                    batch["ligand"][:self.n_samples_for_visualisation], 
+                    outputs_for_viz[:self.n_samples_for_visualisation], 
+                    batch["name"][:self.n_samples_for_visualisation], 
+                    save_dir=self.img_save_dir, 
+                    batch=str(batch_idx) + "_train"
+                )
             except Exception as e:
                 print(f"Error visualising batch {batch_idx}: {e}")
 
@@ -370,7 +553,7 @@ class Poc2Mol(LightningModule):
                         pred,
                         names,
                         save_dir=save_dir,
-                        batch=str(batch_idx)
+                        batch=str(batch_idx) + "_val"
                     )
                 except Exception as e:
                     print(f"Error visualising batch {batch_idx}: {e}")
@@ -526,3 +709,105 @@ class Poc2Mol(LightningModule):
         dice_coeff = compute_per_channel_dice(pred_prob, target_onehot)
         dice = 1.0 - dice_coeff.mean()
         return {"bce": bce, "dice": dice, "loss": bce + dice}
+
+    # ------------------------------------------------------------------
+    # Critic helper utilities
+    # ------------------------------------------------------------------
+
+    def _sample_extra_mask_counts(self, timesteps: torch.Tensor) -> torch.Tensor:
+        """Sample additional mask counts based on the running critic statistics.
+
+        The returned tensor has shape ``[B]`` and indicates how many *extra*
+        voxels should be added to the original random mask so that the
+        distribution of masked voxels during training matches that encountered
+        when using the critic at inference time.
+        """
+        if not self.use_critic:
+            return torch.zeros_like(timesteps, dtype=torch.long)
+
+        device = timesteps.device
+        # Gather mean/variance for each example
+        means = self.critic_rm_mean[timesteps].to(device)
+        counts = self.critic_rm_count[timesteps].to(device)
+        vars_ = torch.zeros_like(means, dtype=torch.float)
+        mask_nonzero = counts > 1
+        vars_[mask_nonzero] = (self.critic_rm_M2[timesteps][mask_nonzero] / (counts[mask_nonzero] - 1)).to(device)
+
+        stds = vars_.clamp_min(0.0).sqrt()
+
+        # Normal sampling can occasionally be negative – clamp at 0.
+        extra = torch.normal(means, stds).clamp_min(0.0).round().long()
+        return extra
+
+    def _update_critic_stats(self, timesteps: torch.Tensor, re_mask_counts: torch.Tensor):
+        """Update running mean/variance of critic re-mask counts (Welford).
+
+        Parameters
+        ----------
+        timesteps : [B] (long)
+            Each element is the diffusion step *t* for that sample.
+        re_mask_counts : [B] (long)
+            Number of voxels re-masked by the critic for the corresponding
+            sample.
+        """
+        if not self.use_critic:
+            return
+
+        for t_val, cnt in zip(timesteps.tolist(), re_mask_counts.tolist()):
+            t_idx = int(t_val)
+            cnt_tensor = torch.tensor(cnt, device=self.critic_rm_count.device, dtype=torch.float)
+
+            # Update count
+            self.critic_rm_count[t_idx] += 1
+            n = self.critic_rm_count[t_idx].item()
+
+            # Welford update
+            delta = cnt_tensor - self.critic_rm_mean[t_idx]
+            self.critic_rm_mean[t_idx] += delta / n
+            delta2 = cnt_tensor - self.critic_rm_mean[t_idx]
+            self.critic_rm_M2[t_idx] += delta * delta2
+
+    def _corrupt_ligand(self, ligand_onehot: torch.Tensor, pred_onehot: torch.Tensor, mask_pos: torch.Tensor) -> torch.Tensor:
+        """Return a *corrupted* ligand tensor for critic training.
+
+        A random fraction of *unmasked* voxels are replaced with the generator
+        predictions ("false" values).  The number of corrupted voxels for each
+        sample is drawn uniformly between 0 and ``max_corrupt_ratio *
+        n_masked``.
+        """
+        if not self.use_critic:
+            # No corruption requested – simply return the ground-truth ligand.
+            return ligand_onehot.clone()
+
+        B, _, D, H, W = ligand_onehot.shape
+        device = ligand_onehot.device
+
+        ligand_corrupted = ligand_onehot.clone()
+
+        for b in range(B):
+            n_masked = mask_pos[b].sum().item()
+            max_corrupt = int(self.max_corrupt_ratio * n_masked)
+            if max_corrupt == 0:
+                continue
+            n_corrupt = max_corrupt
+            # n_corrupt = torch.randint(0, max_corrupt + 1, (1,), device=device).item()  # TODO consider removing this
+
+            # Coordinates of voxels that are currently *unmasked*
+            unmasked_coords = (~mask_pos[b]).nonzero(as_tuple=False)
+            if unmasked_coords.size(0) == 0:
+                continue
+
+            # If we request more corrupt voxels than available, cap it.
+            n_corrupt = min(n_corrupt, unmasked_coords.size(0))
+            if n_corrupt == 0:
+                continue
+
+            perm = torch.randperm(unmasked_coords.size(0), device=device)
+            sel = unmasked_coords[perm[:n_corrupt]]
+
+            # Set selected voxels to generator predictions (detached!)
+            for idx in sel:
+                z, y, x = idx.tolist()
+                ligand_corrupted[b, :, z, y, x] = pred_onehot[b, :, z, y, x]
+
+        return ligand_corrupted

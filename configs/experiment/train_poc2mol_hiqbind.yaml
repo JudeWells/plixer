@@ -7,7 +7,7 @@ defaults:
   - override /logger: wandb.yaml
 
 
-task_name: "DIFFUSION_poc2mol"
+task_name: "CRITIC_DIFFUSION_poc2mol"
 tags:
   - "${task_name}"
   - "hiqbind"
