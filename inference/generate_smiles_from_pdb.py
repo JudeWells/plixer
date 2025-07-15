@@ -2,7 +2,6 @@
 """
 Script to generate SMILES strings from protein PDB files using the end-to-end model.
 """
-
 import os
 import argparse
 import torch
@@ -11,6 +10,8 @@ from rdkit import Chem
 from rdkit.Chem import AllChem, Draw
 import matplotlib.pyplot as plt
 import numpy as np
+import rootutils
+rootutils.setup_root(__file__, indicator=".project-root", pythonpath=True)
 
 from src.models.poc2smiles import CombinedProteinToSmilesModel
 from src.data.common.voxelization.config import Poc2MolDataConfig
@@ -53,7 +54,7 @@ def parse_args():
     )
     
     # Generation parameters
-    parser.add_argument("--center", type=float, nargs=3, help="Center coordinates (x y z) for the pocket.")
+    parser.add_argument("--center", type=float, nargs=3, help="Center coordinates (x y z) for the pocket can be used instead of --ligand_file to define the pocket center.")
     parser.add_argument("--num_samples", type=int, default=10, help="Number of samples to generate per protein")
     parser.add_argument("--temperature", type=float, default=1.0, help="Temperature for sampling")
     parser.add_argument("--batch_size", type=int, default=1, help="Batch size for inference")

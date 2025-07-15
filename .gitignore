@@ -12,3 +12,4 @@ nohup.out
 label_images/
 data/agonists/
 checkpoints/
+venv/

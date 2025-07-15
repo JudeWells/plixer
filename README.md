@@ -1,14 +1,10 @@
-```
-██████╗      ██╗         ██╗    ██╗   ██╗     ███████╗    ██████╗     
-██   ██╗     ██║         ██║    ╚██╗ ██╔╝     ██╔════╝    ██   ██╗    
-██████╔╝     ██║         ██║     ╚████╔╝      █████╗      ██████╔╝    
-██╔═══╝      ██║         ██║     ██╔═██╗      ██╔══╝      ██╔══██╗    
-██║          ███████╗    ██║    ██╔╝  ██╗     ███████╗    ██║  ██║    
-╚═╝          ╚══════╝    ╚═╝    ╚═╝   ╚═╝     ╚══════╝    ╚═╝  ╚═╝
-                                                         
-```
+![Plixer Logo](data/PLIXER.png)
+
+
 Plixer is a generative model for drug-like molecules that bind in protein pockets.
 Provide a PDB file and a pocket location and the model generates SMILES strings for small molecule binders.
+
+## Installation
 
 1.  **Clone the repository:**
     ```bash
@@ -17,11 +13,15 @@ Provide a PDB file and a pocket location and the model generates SMILES strings 
     ```
 
 2.  **Install dependencies:**
-    It is recommended to use a virtual environment.
+    It is recommended to use a virtual environment. Plixer was developed and tested using python 3.11 
     ```bash
-    python -m venv venv
-    source venv/bin/activate
+    python3.11 -m venv venvPlixer
+    source venvPlixer/bin/activate
     pip install -r requirements.txt
+    ```
+    or
+    ```
+    pip install -r requirements_no_gpu.txt
     ```
 
 3.  **Download Model Checkpoints:**
@@ -31,11 +31,9 @@ Provide a PDB file and a pocket location and the model generates SMILES strings 
     ```
 
 4. **Check instalation by running**
-
-
-# Poc2Smiles: End-to-End Protein-to-SMILES Model
-
-
+```
+python inference/generate_smiles_from_pdb.py
+```
 
 This repository contains three models:
 
@@ -63,26 +61,23 @@ This repository contains three models:
 └── scripts/                  # Random scripts
 ```
 
-## Installation
-
-```bash
-# Clone the repository
-git clone https://github.com/judewells/plixer
-cd plixer
-
-# Install dependencies
-pip install -r requirements.txt
-
-```
-Modify this file in your dock2grid install if you want to use float16 (optional):
-`venv/lib/python3.11/site-packages/docktgrid/config.py`
-```python
-DTYPE = torch.bfloat16
-```
 
 ## Usage
 
+### Generating novel molecules for a PDB
+
+To see the configurable options for inference run:
+```
+python inference/generate_smiles_from_pdb.py --help
+```
+
 ### Training poc2mol
+The original model was trained using bfloat16.
+If you want to replicate this modify this file in your dock2grid install (optional):
+`venvPlixer/lib/python3.11/site-packages/docktgrid/config.py`
+```python
+DTYPE = torch.bfloat16
+```
 ```bash
 python src/train.py experiment=example_train_poc2mol_plinder
 ```
@@ -100,18 +95,11 @@ python src/train.py experiment=example_train_vox2smiles_zinc
 python src/train.py experiment=train_vox2smiles_combined
 ```
 
-### Generating SMILES Strings from Ligand Voxels
-
-```bash
-# Generate SMILES strings from protein voxels
-python src/main.py --config-name=generate
-```
-
 ## Model Architecture
 
 ### Poc2Mol
 
-The Poc2Mol model is a 3D U-Net that takes protein voxels as input and generates ligand voxels as output. It uses a residual U-Net architecture.
+The Poc2Mol model is a 3D U-Net that takes protein voxels as input and generates ligand voxels as output.
 
 ### Vox2Smiles
 
