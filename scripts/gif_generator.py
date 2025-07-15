@@ -66,12 +66,12 @@ def create_gif(image_paths, output_path, duration=0.2):
     images = [imageio.imread(path) for path in image_paths]
     print(f"Creating GIF with {len(images)} frames, duration per frame: {duration} seconds")
     # Convert duration to milliseconds for imageio
-    duration_ms = int(duration * 1000)
+    duration_ms = duration # int(duration * 1000)
     imageio.mimsave(output_path, images, duration=duration_ms, loop=0)
 
 if __name__ == "__main__":
-    tar_dir = "evaluation_results/CombinedHiQBindCkptFrmPrevCombined_2025-05-06_v3_member_zero_v3/cluster_images/voxel_visualizations_all_angles_cluster"
-    gif_output_dir = tar_dir.replace("voxel_visualizations_all_angles_cluster", "gifs")
+    tar_dir = "/Users/judewells/Downloads/voxel_visualizations_all_angles_cluster_dark_mode"
+    gif_output_dir = tar_dir.replace("voxel_visualizations_all_angles_cluster", "gifs_duration_0p15")
     os.makedirs(gif_output_dir, exist_ok=True)
     tar_files_pattern = os.path.join(tar_dir, "*.tar.gz")
     tar_files = glob.glob(tar_files_pattern)
@@ -106,7 +106,7 @@ if __name__ == "__main__":
             combined_image_paths.append(combined_path)
         if combined_image_paths:
             gif_path = os.path.join(gif_output_dir, f"{system_name}.gif")
-            create_gif(combined_image_paths, gif_path, duration=0.35)
+            create_gif(combined_image_paths, gif_path, duration=0.15)
             print(f"Created GIF at {gif_path}")
             # delete the combined images
             for combined_path in list(set(combined_image_paths)):
