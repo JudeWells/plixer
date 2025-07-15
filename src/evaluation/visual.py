@@ -6,6 +6,7 @@ import matplotlib.colors as mcolors
 import wandb
 from rdkit import Chem
 from rdkit.Chem import Draw
+from rdkit.Chem import AllChem
 import os
 
 ALL_ANGLES = [
@@ -238,53 +239,6 @@ def visualise_batch(lig, pred, names, angles=None, save_dir=None, batch='none', 
     plt.close(fig)
 
 
-if __name__=="__main__":
-    import yaml
-    from torch.utils.data import DataLoader
-    from src.data.poc2mol.datasets import ParquetDataset
-    from src.data.common.voxelization.config import Poc2MolDataConfig
-
-    with open('configs/data/data.yaml', 'r') as file:
-        yaml_config = yaml.safe_load(file)
-
-    pdb_dir = "/mnt/disk2/VoxelDiffOuter/1b38"
-    config = DataConfig(yaml_config['config'])
-    class DictToClass:
-        def __init__(self, dictionary):
-            for key, value in dictionary.items():
-                setattr(self, key, value)
-    vox_config = DictToClass(yaml_config['config']['vox_config'])
-    config.vox_config = vox_config
-    dataset = ComplexDataset(
-        config=config,
-        pdb_dir=pdb_dir
-    )
-    loader = DataLoader(dataset, batch_size=1, shuffle=False)
-    for batch in loader:
-        # visualise_batch(
-        #     batch["ligand"],
-        #     batch["protein"],
-        #     batch["name"],
-        #     angles=None,
-        #     save_dir=pdb_dir,
-        #     batch='none'
-        # )
-        show_3d_voxel_lig_only(
-            batch["ligand"].squeeze(0),
-            angles=None,
-            save_dir=pdb_dir,
-            identifier='1b38_pocket'
-        )
-
-        show_3d_voxel_lig_only(
-            batch["protein"].squeeze(0),
-            angles=None,
-            save_dir=pdb_dir,
-            identifier='1b38_ligand'
-        )
-
-        break
-
 
 def visualize_2d_molecule_batch(batch_data, output_path, n_cols=3):
     """
@@ -428,4 +382,58 @@ def show_3d_voxel_lig_in_protein(lig_vox, protein_vox, angles=None, save_dir=Non
             os.makedirs(save_dir, exist_ok=True)
             plt.savefig(f"{save_dir}/{identifier}_angle_{i + 1}.png", dpi=300, bbox_inches='tight')
             
+    plt.close(fig)
+
+def visualize_2d_smiles_batch(smiles_list, output_path, n_cols=3, title='Generated Molecules'):
+    """
+    Visualize a batch of SMILES strings as 2-D molecule depictions arranged
+    in a grid and save the result to *output_path*.
+
+    Args:
+        smiles_list (list[str]): SMILES strings to visualise.
+        output_path (str): Destination path for the generated PNG (directories
+            will be created as necessary).
+        n_cols (int, optional): Number of columns in the grid. Defaults to 3.
+        title (str, optional): Figure title. Defaults to 'Generated Molecules'.
+    """
+    # Convert SMILES to RDKit molecules (filtering invalid ones)
+    mols, valid_smiles = [], []
+    for smi in smiles_list:
+        mol = Chem.MolFromSmiles(smi)
+        if mol is not None:
+            AllChem.Compute2DCoords(mol)
+            mols.append(mol)
+            valid_smiles.append(smi)
+
+    if not mols:
+        raise ValueError("No valid SMILES strings provided for visualisation.")
+
+    n_mols = len(mols)
+    n_rows = (n_mols + n_cols - 1) // n_cols  # Ceiling division
+
+    fig, axes = plt.subplots(n_rows, n_cols, figsize=(4 * n_cols, 5 * n_rows))
+    if n_rows == 1:
+        axes = np.expand_dims(axes, axis=0)
+    axes = axes.flatten()
+
+    if title:
+        fig.suptitle(title, fontsize=16, y=0.95)
+
+    for idx, (mol, smi) in enumerate(zip(mols, valid_smiles)):
+        ax = axes[idx]
+        img = Draw.MolToImage(mol, size=(300, 300))
+        ax.imshow(img)
+        ax.axis('off')
+        # Wrap the SMILES string for better readability
+        wrapped = '\n'.join([smi[i:i + 50] for i in range(0, len(smi), 50)])
+        ax.text(0.5, -0.05, wrapped, transform=ax.transAxes,
+                ha='center', va='top', fontsize=8, wrap=True)
+
+    # Hide any unused axes
+    for j in range(len(mols), len(axes)):
+        axes[j].axis('off')
+
+    plt.tight_layout()
+    os.makedirs(os.path.dirname(output_path), exist_ok=True)
+    plt.savefig(output_path, dpi=300, bbox_inches='tight')
     plt.close(fig)

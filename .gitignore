@@ -13,3 +13,4 @@ label_images/
 data/agonists/
 checkpoints/
 venv/
+bindingdb_filtering_summary.json

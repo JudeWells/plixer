@@ -4,6 +4,8 @@
 Plixer is a generative model for drug-like molecules that bind in protein pockets.
 Provide a PDB file and a pocket location and the model generates SMILES strings for small molecule binders.
 
+![Demo Gif](data/6pj3.gif)
+
 ## Installation
 
 1.  **Clone the repository:**

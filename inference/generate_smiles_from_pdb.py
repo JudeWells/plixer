@@ -19,6 +19,7 @@ from src.data.common.voxelization.molecule_utils import voxelize_complex
 from src.utils.utils import voxelize_protein
 from src.utils.metrics import calculate_validity, calculate_uniqueness
 from src.utils.utils import load_model, get_center_from_ligand
+from src.evaluation.visual import visualize_2d_smiles_batch
 
 def parse_args():
     parser = argparse.ArgumentParser(description="Generate SMILES strings from protein PDB files")
@@ -126,7 +127,7 @@ def main():
         center = get_center_from_ligand(args.ligand_file)
         # Voxelize protein-ligand complex
     else:
-        raise ValueError("Either --ligand_file or --center must be provided.")
+        raise ValueError("Either --ligand_file or --center must be provided to define the pocket center.")
     protein_voxel = voxelize_protein(args.pdb_file, center, poc2mol_config)
 
     
@@ -156,13 +157,10 @@ def main():
             f.write(f"{smiles}\n")
     
     # Visualize results
-    visualize_2D_slice(
-        protein_name,
-        protein_voxel[0].cpu().numpy(),
-        ligand_voxel.cpu().numpy() if ligand_voxel is not None else None,
-        output["predicted_ligand_voxels"][0].cpu().numpy(),
+    visualize_2d_smiles_batch(
         generated_smiles_list,
-        os.path.join(args.output_dir, f"{protein_name}_visualization.png")
+        os.path.join(args.output_dir, f"{protein_name}_generated_smiles.png"),
+        n_cols=3,
     )
     
     # Calculate metrics
@@ -179,74 +177,6 @@ def main():
         f.write(f"Validity: {validity:.4f}\n")
         f.write(f"Uniqueness: {uniqueness:.4f}\n")
 
-
-def visualize_2D_slice(protein_name, protein_voxel, true_ligand_voxel, generated_ligand_voxel, generated_smiles, output_file):
-    """
-    Visualize the results of the generation.
-    
-    Args:
-        protein_name: Name of the protein
-        protein_voxel: Protein voxel
-        true_ligand_voxel: True ligand voxel (optional)
-        generated_ligand_voxel: Generated ligand voxel
-        generated_smiles: List of generated SMILES strings
-        output_file: Path to output file
-    """
-    # Create figure
-    fig = plt.figure(figsize=(15, 10))
-    
-    # Add title
-    fig.suptitle(f"Results for {protein_name}", fontsize=16)
-    
-    # Plot protein voxel
-    ax1 = fig.add_subplot(2, 3, 1)
-    ax1.imshow(np.max(protein_voxel[0], axis=0), cmap="viridis")
-    ax1.set_title("Protein Voxel")
-    ax1.axis("off")
-    
-    # Plot true ligand voxel if available
-    if true_ligand_voxel is not None:
-        ax2 = fig.add_subplot(2, 3, 2)
-        ax2.imshow(np.max(true_ligand_voxel[0], axis=0), cmap="viridis")
-        ax2.set_title("True Ligand Voxel")
-        ax2.axis("off")
-    else:
-        # Add a placeholder for layout consistency
-        ax2 = fig.add_subplot(2, 3, 2)
-        ax2.text(0.5, 0.5, 'No ground truth ligand provided', horizontalalignment='center', verticalalignment='center', transform=ax2.transAxes)
-        ax2.axis("off")
-
-    # Plot generated ligand voxel
-    ax3 = fig.add_subplot(2, 3, 3)
-    ax3.imshow(np.max(generated_ligand_voxel[0], axis=0), cmap="viridis")
-    ax3.set_title("Generated Ligand Voxel")
-    ax3.axis("off")
-    
-    # Plot generated molecules
-    valid_mols = []
-    for smiles in generated_smiles[:3]:  # Show up to 3 molecules
-        mol = Chem.MolFromSmiles(smiles)
-        if mol is not None:
-            AllChem.Compute2DCoords(mol)
-            valid_mols.append((mol, smiles))
-    
-    for i, (mol, smiles) in enumerate(valid_mols):
-        if i >= 3:
-            break
-        
-        ax = fig.add_subplot(2, 3, 4 + i)
-        img = Draw.MolToImage(mol, size=(300, 300))
-        ax.imshow(img)
-        ax.set_title(f"Generated Molecule {i+1}")
-        ax.axis("off")
-        
-        # Add SMILES as text
-        ax.text(0.5, -0.1, smiles, transform=ax.transAxes, ha="center", va="center", fontsize=8, wrap=True)
-    
-    # Save figure
-    plt.tight_layout()
-    plt.savefig(output_file, dpi=300)
-    plt.close(fig)
 
 
 if __name__ == "__main__":

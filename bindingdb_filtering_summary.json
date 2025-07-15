@@ -1,7 +1,0 @@
-{
-  "original_entries": 100000,
-  "after_pdb_filtering": 50925,
-  "final_entries": 33624,
-  "filtered_by_pdb": 49075,
-  "filtered_by_protein_similarity": 17301
-}
