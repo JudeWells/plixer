@@ -384,6 +384,58 @@ def show_3d_voxel_lig_in_protein(lig_vox, protein_vox, angles=None, save_dir=Non
             
     plt.close(fig)
 
+
+def show_3d_voxel_protein_only(protein_vox, angles=None, save_dir=None, identifier='protein_only'):
+    """
+    Visualizes ligand voxels inside protein pocket.
+    
+    Args:
+        protein_vox (np.ndarray): Protein voxel grid of shape (n_channels, x, y, z)
+        angles (list): List of (elevation, azimuth) angles to view from
+        save_dir (str): Directory to save images
+        identifier (str): Identifier for saved images
+    """
+    if not isinstance(protein_vox, np.ndarray):
+        protein_vox = protein_vox.detach().cpu().numpy()
+        
+    protein_vox = (protein_vox > 0.5).astype(int)
+
+    protein_colors = np.zeros((protein_vox.shape[0], 4))
+    protein_colors[0] = mcolors.to_rgba('green')  # carbon_ligand
+    protein_colors[1] = mcolors.to_rgba('red')  # oxygen_ligand
+    protein_colors[2] = mcolors.to_rgba('blue')  # nitrogen_ligand
+    protein_colors[3] = mcolors.to_rgba('yellow')  # sulfur_ligand
+
+    protein_colors[:, 3] = 0.3    
+    
+    if angles is None:
+        # cover all angles in 45 degree increments
+        angles = ALL_ANGLES
+        
+    fig = plt.figure(figsize=(6, 6))
+    ax = fig.add_subplot(111, projection='3d')
+    
+    # Plot protein voxels first (as background)
+    for channel in range(protein_vox.shape[0]):
+        ax.voxels(protein_vox[channel], facecolors=protein_colors[channel], edgecolors=protein_colors[channel])
+    
+    
+    # Save images from different angles
+    for i, angle in enumerate(angles):
+        ax.view_init(elev=angle[0], azim=angle[1])
+        ax.axis('off')
+        ax.grid(False)
+        ax.set_xticks([])
+        ax.set_yticks([])
+        ax.set_zticks([])
+        
+        if save_dir is not None:
+            os.makedirs(save_dir, exist_ok=True)
+            plt.savefig(f"{save_dir}/{identifier}_angle_{i + 1}.png", dpi=300, bbox_inches='tight')
+            
+    plt.close(fig)
+
+
 def visualize_2d_smiles_batch(smiles_list, output_path, n_cols=3, title='Generated Molecules'):
     """
     Visualize a batch of SMILES strings as 2-D molecule depictions arranged
