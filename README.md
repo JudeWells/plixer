@@ -6,6 +6,10 @@ Provide a PDB file and a pocket location and the model generates SMILES strings 
 
 ![Demo Gif](data/6pj3.gif)
 
+Paper accepted to GenBio @ ICML 2025
+
+[Read the preprint here](plixer_ICML_GenBio_2025_version.pdf)
+
 ## Installation
 
 1.  **Clone the repository:**
