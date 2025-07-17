@@ -315,7 +315,6 @@ def summarize_results(results_df, output_dir=None):
     validity = results_df.valid_smiles.mean(),
     smiles_token_accuracy = results_df.smiles_teacher_forced_accuracy.mean(),
     smiles_loss = results_df.loss.mean(),
-    decoy_smiles_loss = results_df.decoy_loss.mean(),
     tanimoto_similarity = results_df.tanimoto_similarity.mean(),
     decoy_tanimoto_similarity = results_df.decoy_tanimoto_similarity.mean(),
     n_mols_gt_0p3_tanimoto = len(results_df[results_df.tanimoto_similarity >= 0.3]),
@@ -762,14 +761,14 @@ def main():
                 args.pdb_dir, 
                 args.dtype,
             )
-        # smiles_likelihood_results = all_decoy_smiles_likelihood_scoring_batched(
-        #     combined_model, 
-        #     test_dataloader,
-        #     df = pd.read_csv(test_df_path),
-        #     output_dir=os.path.join(output_dir, "plixer_likelihood_scores"),
-        #     smiles_batch_size=24,
-        #     n_pocket_variants=1,
-        # )
+        smiles_likelihood_results = all_decoy_smiles_likelihood_scoring_batched(
+            combined_model, 
+            test_dataloader,
+            df = pd.read_csv(test_df_path),
+            output_dir=os.path.join(output_dir, "plixer_likelihood_scores"),
+            smiles_batch_size=24,
+            n_pocket_variants=1,
+        )
         results = evaluate_combined_model(
             combined_model, 
             test_dataloader,

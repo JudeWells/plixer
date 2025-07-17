@@ -102,17 +102,11 @@ class CombinedProteinToSmilesModel(L.LightningModule):
             "Either ligand_voxels or protein_voxels must be provided."
         )
 
-        if ligand_voxels is not None:
-            # User explicitly provided ground-truth ligand voxels – bypass
-            # Poc2Mol for the forward pass but **optionally** compute the
-            # Poc2Mol loss if protein voxels are also given.
-            final_ligand_voxels = ligand_voxels
-            if protein_voxels is not None:
-                poc2mol_output = self.poc2mol_model(protein_voxels, labels=ligand_voxels)
-        else:
-            # Need to run Poc2Mol to obtain predictions.
+        if protein_voxels is not None:
             poc2mol_output = self.poc2mol_model(protein_voxels, labels=ligand_voxels)
             final_ligand_voxels = poc2mol_output["predicted_ligand_voxels"]
+        else:
+            final_ligand_voxels = ligand_voxels
 
         # Store Poc2Mol outputs (if any) for downstream logging/analysis.
         if poc2mol_output is not None and isinstance(poc2mol_output, dict):

@@ -5,7 +5,7 @@ from scipy import stats
 
 # df = pd.read_csv("/Users/judewells/Documents/dataScienceProgramming/binding_affinity/VoxelDiffOuter/plixer/evaluation_results/bubba_zjhnye4j_2025-05-11_highPropPoc2Mol/plinder/plinder_combined_model_results_20250516_000646.csv")
 # df = pd.read_csv("/Users/judewells/Downloads/bubba_zjhnye4j_2025-05-11_highPropPoc2Mol/combined_model_results.csv")
-df = pd.read_csv( "/Users/judewells/Documents/dataScienceProgramming/binding_affinity/VoxelDiffOuter/plixer/evaluation_results/checkpoints_model_run_2025-07-02_batched/chrono_combined_model_results_20250702_140314.csv")
+df = pd.read_csv( "evaluation_results/CombinedModel_2025-05-06_v5/chrono/chrono_combined_model_results_20250716_224904.csv")
 plt.style.use("dark_background")
 df = df.dropna(subset='tanimoto_similarity')
 

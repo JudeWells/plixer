@@ -91,11 +91,9 @@ def generate_plots_from_results_df(df, output_dir, vis_deciles: bool = True, sim
     # ---------------------------------------------------------------------
     bar_metrics: List[str] = [
         "loss",
-        "decoy_loss",
         "tanimoto_similarity",
         "decoy_tanimoto_similarity",
         "smiles_teacher_forced_accuracy",
-        "decoy_smiles_decoy_label_teacher_forced_accuracy",
     ]
     bar_vals, bar_errors = [], []
     for m in bar_metrics:
