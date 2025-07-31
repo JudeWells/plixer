@@ -109,6 +109,7 @@ class CombinedProteinToSmilesModel(L.LightningModule):
             final_ligand_voxels = ligand_voxels
             if protein_voxels is not None:
                 poc2mol_output = self.poc2mol_model(protein_voxels, labels=ligand_voxels)
+                final_ligand_voxels = poc2mol_output["predicted_ligand_voxels"]
         else:
             # Need to run Poc2Mol to obtain predictions.
             poc2mol_output = self.poc2mol_model(protein_voxels, labels=ligand_voxels)
@@ -145,7 +146,6 @@ class CombinedProteinToSmilesModel(L.LightningModule):
         # ------------------------------------------------------------------
         result.update({
             "predicted_ligand_voxels": final_ligand_voxels,
-            # Legacy alias to avoid breaking older code
             "ligand_voxels": final_ligand_voxels,
             "sampled_smiles": sampled_smiles,
         })

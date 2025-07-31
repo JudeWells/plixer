@@ -43,19 +43,23 @@ def combine_images(pred_path, true_path, pred_in_pocket, true_in_pocket, output_
     # Open and crop images
     pred_img = crop_by_percent(Image.open(pred_path), 0.15)
     true_img = crop_by_percent(Image.open(true_path), 0.15)
-    pred_pocket_img = crop_by_percent(Image.open(pred_in_pocket), 0.05)
-    true_pocket_img = crop_by_percent(Image.open(true_in_pocket), 0.05)
+
     # Resize
     pred_img = pred_img.resize((quarter, quarter), Image.LANCZOS)
     true_img = true_img.resize((quarter, quarter), Image.LANCZOS)
-    pred_pocket_img = pred_pocket_img.resize((quarter, quarter), Image.LANCZOS)
-    true_pocket_img = true_pocket_img.resize((quarter, quarter), Image.LANCZOS)
+
     # Create combined image
     combined = Image.new('RGB', (combined_size, combined_size), (255, 255, 255))
     combined.paste(pred_img, (0, 0))  # top left
     combined.paste(true_img, (quarter, 0))  # top right
-    combined.paste(pred_pocket_img, (0, quarter))  # bottom left
-    combined.paste(true_pocket_img, (quarter, quarter))  # bottom right
+    
+    if os.path.exists(pred_in_pocket) and os.path.exists(true_in_pocket):
+        pred_pocket_img = crop_by_percent(Image.open(pred_in_pocket), 0.05)
+        true_pocket_img = crop_by_percent(Image.open(true_in_pocket), 0.05)
+        pred_pocket_img = pred_pocket_img.resize((quarter, quarter), Image.LANCZOS)
+        true_pocket_img = true_pocket_img.resize((quarter, quarter), Image.LANCZOS)
+        combined.paste(pred_pocket_img, (0, quarter))  # bottom left
+        combined.paste(true_pocket_img, (quarter, quarter))  # bottom right
     combined.save(output_path)
     return output_path
 
@@ -70,8 +74,9 @@ def create_gif(image_paths, output_path, duration=0.2):
     imageio.mimsave(output_path, images, duration=duration_ms, loop=0)
 
 if __name__ == "__main__":
-    tar_dir = "evaluation_results/CombinedHiQBindCkptFrmPrevCombined_2025-05-06_v3_member_zero_v3/cluster_images/voxel_visualizations_all_angles_cluster"
-    gif_output_dir = tar_dir.replace("voxel_visualizations_all_angles_cluster", "gifs")
+    # tar_dir = "evaluation_results/CombinedHiQBindCkptFrmPrevCombined_2025-05-06_v3_member_zero_v3/cluster_images/voxel_visualizations_all_angles_cluster"
+    tar_dir = "evaluation_results/poc2mol_hiqbind_only_trained_jul_2025/chrono/compressed_all_angles"
+    gif_output_dir = "evaluation_results/poc2mol_hiqbind_only_trained_jul_2025/chrono/gifs"
     os.makedirs(gif_output_dir, exist_ok=True)
     tar_files_pattern = os.path.join(tar_dir, "*.tar.gz")
     tar_files = glob.glob(tar_files_pattern)
@@ -95,8 +100,8 @@ if __name__ == "__main__":
             if not all([
                 os.path.exists(pred_path),
                 os.path.exists(true_path),
-                os.path.exists(pred_in_pocket),
-                os.path.exists(true_in_pocket)
+                # os.path.exists(pred_in_pocket),
+                # os.path.exists(true_in_pocket)
             ]):
                 print(f"Missing files for {system_dir}")
                 continue
