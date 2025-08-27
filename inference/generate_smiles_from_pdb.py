@@ -24,19 +24,6 @@ from src.evaluation.visual import visualize_2d_smiles_batch
 def parse_args():
     parser = argparse.ArgumentParser(description="Generate SMILES strings from protein PDB files")
     
-    # Paths
-    parser.add_argument(
-        "--vox2smiles_ckpt_path", 
-        type=str, 
-        default="checkpoints/combined_protein_to_smiles/epoch_000.ckpt", 
-        help="Path to model checkpoint"
-    )
-    parser.add_argument(
-        "--poc2mol_ckpt_path", 
-        type=str, 
-        default="checkpoints/poc_vox_to_mol_vox/epoch_173.ckpt",
-        help="Path to model checkpoint"
-    )
     parser.add_argument("--pdb_file", 
         type=str, 
         default="data/agonists/5-MeO-DMT_8fy8.pdb", 
@@ -61,6 +48,18 @@ def parse_args():
     parser.add_argument("--batch_size", type=int, default=1, help="Batch size for inference")
     parser.add_argument("--seed", type=int, default=42, help="Random seed")
     parser.add_argument("--dtype", type=str, default="torch.float32", help="Data type for the model.")
+    parser.add_argument(
+        "--vox2smiles_ckpt_path", 
+        type=str, 
+        default="checkpoints/combined_protein_to_smiles/epoch_000.ckpt", 
+        help="Path to model checkpoint"
+    )
+    parser.add_argument(
+        "--poc2mol_ckpt_path", 
+        type=str, 
+        default="checkpoints/poc_vox_to_mol_vox/epoch_173.ckpt",
+        help="Path to model checkpoint"
+    )
     args = parser.parse_args()
     if isinstance(args.dtype, str):
         args.dtype = eval(args.dtype)
