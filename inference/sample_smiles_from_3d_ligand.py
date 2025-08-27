@@ -3,6 +3,13 @@ Inference script that takes a path to an SDF or MOL2 file containing a 3D
 ligand structure, voxelizes the ligand, and samples SMILES from the
 vox2smiles model.
 
+Use this script if you want to sample analogs of a ligand for which you have 
+3D structure cocrystalized with your target protein.
+
+The temperature parameter may require some tuning: if all generated SMILES are
+too similar: increase the temperature. If you get many invalid SMILES warnings: 
+decrease the temperature.
+
 This script mirrors the structure of `generate_smiles_from_pdb.py` but does
 not load or use the Poc2Mol model. Instead, it directly voxelizes the ligand
 and feeds it to the Vox2Smiles model for SMILES generation.
@@ -34,7 +41,7 @@ def parse_args():
     parser.add_argument(
         "--ligand_file",
         type=str,
-        required=True,
+        default="data/crossdocked_test/ABL2_HUMAN_274_551_0/4xli_B_rec_4xli_1n1_lig_tt_min_0.sdf",
         help="Path to a ligand file (.sdf or .mol2) containing 3D coordinates.",
     )
     parser.add_argument(
@@ -46,19 +53,17 @@ def parse_args():
 
     # Generation parameters
     parser.add_argument("--num_samples", type=int, default=10, help="Number of samples to generate")
-    parser.add_argument("--temperature", type=float, default=1.0, help="Temperature for sampling")
-    parser.add_argument("--batch_size", type=int, default=1, help="Batch size for inference")
+    parser.add_argument("--temperature", type=float, default=1.5, help="Temperature for sampling")
     parser.add_argument("--seed", type=int, default=42, help="Random seed")
     parser.add_argument("--dtype", type=str, default="torch.float32", help="Data type for the model")
     parser.add_argument(
-        "--vox2smiles_ckpt_path",
-        type=str,
-        default="checkpoints/vox2smiles/epoch_000.ckpt",
-        help="Path to Vox2Smiles model checkpoint",
+        "--vox2smiles_ckpt_path", 
+        type=str, 
+        default="checkpoints/combined_protein_to_smiles/epoch_000.ckpt", 
+        help="Path to model checkpoint"
     )
 
     # Voxelization overrides (optional)
-    parser.add_argument("--include_hydrogens", action="store_true", help="Include hydrogens during voxelization")
     parser.add_argument(
         "--random_rotation", action="store_true", help="Apply random rotation during voxelization"
     )
@@ -103,39 +108,22 @@ def main():
     vox2smiles_model.eval()
 
     # Build a voxelization config mirroring dataset usage
-    voxel_config = Vox2SmilesDataConfig(
-        vox_size=config.data.config.vox_size if "data" in config and "config" in config.data else 0.75,
-        box_dims=(
-            config.data.config.box_dims if "data" in config and "config" in config.data else [24.0, 24.0, 24.0]
-        ),
-        random_rotation=args.random_rotation,
-        random_translation=args.random_translation,
-        has_protein=False,
-        ligand_channel_names=(
-            config.data.config.ligand_channel_names if "data" in config and "config" in config.data else None
-        ),
-        protein_channel_names=(
-            config.data.config.protein_channel_names if "data" in config and "config" in config.data else None
-        ),
-        protein_channels=(
-            config.data.config.protein_channels if "data" in config and "config" in config.data else None
-        ),
-        ligand_channels=(
-            config.data.config.ligand_channels if "data" in config and "config" in config.data else None
-        ),
-        max_atom_dist=(config.data.config.max_atom_dist if "data" in config and "config" in config.data else 32.0),
-        dtype=args.dtype,
-    )
-    if hasattr(args, "include_hydrogens"):
-        voxel_config.include_hydrogens = args.include_hydrogens
+    voxel_config = Vox2SmilesDataConfig()
+    voxel_config.random_rotation = args.random_rotation
+    voxel_config.random_translation = args.random_translation
+    voxel_config.dtype = args.dtype
+    voxel_config.batch_size = 1
 
     # Read ligand and optionally strip hydrogens
     ligand_mol = load_ligand_from_file(args.ligand_file)
-    if not getattr(voxel_config, "include_hydrogens", True):
-        ligand_mol = Chem.RemoveHs(ligand_mol)
+
 
     # Voxelize ligand
     ligand_voxel = voxelize_molecule(ligand_mol, voxel_config)
+    if len(ligand_voxel.shape) == 4:
+        # add a batch dimension
+        ligand_voxel = ligand_voxel.unsqueeze(0)
+
     ligand_voxel = ligand_voxel.to(device)
 
     # Generate multiple samples

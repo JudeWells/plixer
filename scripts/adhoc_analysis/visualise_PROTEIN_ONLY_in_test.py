@@ -21,33 +21,33 @@ from src.evaluation.visual import (
 )
 
 
-# ALL_ANGLES = [
-#             (0, 0),
-#             (0, 45),
-#             (0, 90),
-#             (45, 135),
-#             (45, 180),
-#             (45, -135),
-#             (90, -90),
-#             (90, -45),
-#             (90, 0),
-#             (135, 45),
-#             (135, 90),
-#             (135, 135),
-#             (180, 180),
-#             (180, -135),
-#             (180, -90),
-#             (-135, -45),
-#             (-135, 0),
-#             (-135, 45),
-#             (-90, 90),
-#             (-90, 135),
-#             (-90, 180),
-#             (-45, -135),
-#             (-45, -90),
-#             (-45, -45),
-#             (-45, 0),
-#         ]
+ALL_ANGLES = [
+            (0, 0),
+            (0, 45),
+            (0, 90),
+            (45, 135),
+            (45, 180),
+            (45, -135),
+            (90, -90),
+            (90, -45),
+            (90, 0),
+            (135, 45),
+            (135, 90),
+            (135, 135),
+            (180, 180),
+            (180, -135),
+            (180, -90),
+            (-135, -45),
+            (-135, 0),
+            (-135, 45),
+            (-90, 90),
+            (-90, 135),
+            (-90, 180),
+            (-45, -135),
+            (-45, -90),
+            (-45, -45),
+            (-45, 0),
+        ]
 
 def process_single_case(pred_vox_path, true_vox_path, protein_vox_path, output_dir, row_info):
     """Process a single case of voxel visualization"""
@@ -81,7 +81,6 @@ def process_single_case(pred_vox_path, true_vox_path, protein_vox_path, output_d
     
     protein_vox = np.load(protein_vox_path).squeeze()
     
-    protein_vox[3] = 0
     # 3. Predicted ligand inside protein pocket
     show_3d_voxel_protein_only(
         protein_vox,
@@ -136,7 +135,6 @@ if __name__ == "__main__":
         # The 'dark_background' style sets figure and axes facecolors to black and
         # switches default text/edge colours to lighter tones for contrast.
         plt.style.use("dark_background")
-    # Define paths
     base_dir = "evaluation_results/CombinedHiQBindCkptFrmPrevCombined_2025-05-06_v3_member_zero_v3"
     output_dir = os.path.join(base_dir, "voxel_visualizations_all_angles_cluster_dark_mode")
     csv_path = glob.glob(os.path.join(base_dir, "*.csv"))[0]
