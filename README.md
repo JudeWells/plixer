@@ -41,34 +41,18 @@ Paper accepted to GenBio @ ICML 2025
 python inference/generate_smiles_from_pdb.py
 ```
 
-This repository contains three models:
-
-1. **Poc2Mol**: Generates voxelized ligands from protein voxel inputs
-2. **Vox2Smiles**: Decodes voxelized ligands into SMILES strings
-3. **CombinedProtein2Smiles** combines 1 & 2 for end-to-end pipeline
-
-## Project Structure
-
-```
-├── configs/                  # Configuration files
-│   ├── data/                 # Data configuration
-│   ├── model/                # Model configuration
-│   └── experiments/          # Launch training runs with this
-├── src/                      # Source code
-│   ├── data/                 # Data processing modules
-│   │   ├── common/           # Common data utilities
-│   │   │   ├── tokenizers/   # SMILES tokenizers
-│   │   │   └── voxelization/ # Unified voxelization code
-│   │   ├── poc2mol/          # Poc2Mol data modules
-│   │   ├── vox2smiles/       # Vox2Smiles data modules
-│   │   └── poc2smiles/       # Combined data modules
-│   ├── models/               # Model definitions
-│   └── utils/                # Utility functions
-└── scripts/                  # Random scripts
-```
-
 
 ## Usage
+
+The main use-case for plixer is generating SMILES strings from a PDB
+file which contains your target protein `inference/generate_smiles_from_pdb.py`
+
+Secondary use cases include:
+scoring / ranking molecules from pre-defined list `inference/rank_smiles.py`
+
+generating structural analogs of a 3D ligand `inference/sample_smiles_from_3d_ligand.py`
+
+These secondary use cases are not extensively tested, and it is likely that traditional chemoinformatics methods will perform better at these tasks.
 
 ### Generating novel molecules for a PDB
 
@@ -99,6 +83,32 @@ python src/train.py experiment=example_train_vox2smiles_zinc
 
 ```bash
 python src/train.py experiment=train_vox2smiles_combined
+```
+
+This repository contains three models:
+
+1. **Poc2Mol**: Generates voxelized ligands from protein voxel inputs
+2. **Vox2Smiles**: Decodes voxelized ligands into SMILES strings
+3. **CombinedProtein2Smiles** combines 1 & 2 for end-to-end pipeline
+
+## Project Structure
+
+```
+├── configs/                  # Configuration files
+│   ├── data/                 # Data configuration
+│   ├── model/                # Model configuration
+│   └── experiments/          # Launch training runs with this
+├── src/                      # Source code
+│   ├── data/                 # Data processing modules
+│   │   ├── common/           # Common data utilities
+│   │   │   ├── tokenizers/   # SMILES tokenizers
+│   │   │   └── voxelization/ # Unified voxelization code
+│   │   ├── poc2mol/          # Poc2Mol data modules
+│   │   ├── vox2smiles/       # Vox2Smiles data modules
+│   │   └── poc2smiles/       # Combined data modules
+│   ├── models/               # Model definitions
+│   └── utils/                # Utility functions
+└── scripts/                  # Random scripts
 ```
 
 ## Model Architecture
