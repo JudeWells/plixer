@@ -3,6 +3,8 @@ import torch
 import numpy as np
 import pandas as pd
 from tqdm import tqdm
+import rootutils
+rootutils.setup_root(__file__, indicator=".project-root", pythonpath=True)
 
 from src.utils.utils import load_model, get_center_from_ligand, voxelize_protein
 from src.data.common.voxelization.config import Poc2MolDataConfig

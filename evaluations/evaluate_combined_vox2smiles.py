@@ -14,6 +14,8 @@ from torch.utils.data import DataLoader
 import matplotlib.pyplot as plt
 import pytorch_lightning as pl
 from transformers import PreTrainedTokenizerFast
+import rootutils
+rootutils.setup_root(__file__, indicator=".project-root", pythonpath=True)
 from src.models.poc2mol import Poc2Mol
 from src.evaluation.visual import visualise_batch, show_3d_voxel_lig_only, visualize_2d_molecule_batch
 from src.utils.utils import get_config_from_cpt_path, build_combined_model_from_config
@@ -64,13 +66,13 @@ def parse_args():
     parser.add_argument(
         "--vox2smiles_ckpt_path", 
         type=str, 
-        default="logs/CombinedHiQBindCkptFrmPrevCombined/runs/2025-05-06_20-51-46/checkpoints/last.ckpt",
+        default="checkpoints/combined_protein_to_smiles/epoch_000.ckpt",
         help="Path to the model checkpoint"
     )
     parser.add_argument(
         "--poc2mol_ckpt_path", 
         type=str, 
-        default="logs/poc2mol/runs/2025-04-21_18-13-26/checkpoints/epoch_173.ckpt",
+        default="checkpoints/poc_vox_to_mol_vox/epoch_173.ckpt",
         help="Path to the model checkpoint"
     )
     parser.add_argument(

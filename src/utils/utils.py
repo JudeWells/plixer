@@ -204,6 +204,7 @@ def load_model(vox2smiles_ckpt_path, poc2mol_ckpt_path, device, dtype=torch.floa
     model = build_combined_model_from_config(
         config=config,
         vox2smiles_ckpt_path=vox2smiles_ckpt_path,
+        poc2mol_ckpt_path=poc2mol_ckpt_path,
         dtype=dtype,
         device=device,
     )
