@@ -13,4 +13,7 @@ label_images/
 data/agonists/
 checkpoints/
 venv/
+data/crossdocked_test/
+data/agonists/
+data/cache_round1_smiles_all_out_hits_and_others.csv
 bindingdb_filtering_summary.json

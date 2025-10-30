@@ -26,12 +26,12 @@ def parse_args():
     
     parser.add_argument("--pdb_file", 
         type=str, 
-        default="data/agonists/5-MeO-DMT_8fy8.pdb", 
+        default="data/5TT8_CAII.pdb", 
         help="Path to the protein PDB file."
     )
     parser.add_argument("--ligand_file", 
         type=str,
-        default="data/agonists/LSD_8fyt_E_7LD.mol2",
+        default="data/5TT8_CAII.mol2",
         help="Path to a ligand file (SDF/MOL2) only used to define the pocket center."
     )
     parser.add_argument(
