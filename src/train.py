@@ -22,6 +22,7 @@ if __name__ == "__main__":
     multiprocessing.set_start_method('spawn', force=True)
 
 from src.utils import (
+    ProvenanceCallback,
     RankedLogger,
     extras,
     get_metric_value,
@@ -29,6 +30,7 @@ from src.utils import (
     instantiate_loggers,
     log_hyperparameters,
     task_wrapper,
+    write_provenance,
 )
 
 os.environ["HYDRA_FULL_ERROR"] = "1"
@@ -40,6 +42,11 @@ log = RankedLogger(__name__, rank_zero_only=True)
 def train(cfg: DictConfig) -> Tuple[Dict[str, Any], Dict[str, Any]]:
     if cfg.get("seed"):
         L.seed_everything(cfg.seed, workers=True)
+
+    # Record git state, resolved config and parent checkpoints before anything runs.
+    # `write_provenance` is rank-zero-only, so other ranks get None; only rank zero
+    # writes checkpoints, so an empty record elsewhere is harmless.
+    provenance_record = write_provenance(cfg, cfg.paths.output_dir) or {}
 
     log.info(f"Instantiating datamodule <{cfg.data._target_}>")
     datamodule: LightningDataModule = hydra.utils.instantiate(cfg.data)
@@ -73,6 +80,10 @@ def train(cfg: DictConfig) -> Tuple[Dict[str, Any], Dict[str, Any]]:
     lr_monitor = LearningRateMonitor(logging_interval='step')
     callbacks.append(lr_monitor)
 
+    # Embeds the provenance record into every checkpoint this run saves, so a stray
+    # .ckpt file is enough to identify the code and config that produced it.
+    callbacks.append(ProvenanceCallback(provenance_record))
+
     batch_size = cfg.data.config.batch_size
     target_samples_per_batch = cfg.data.config.get("target_samples_per_batch", batch_size)
 
@@ -96,6 +107,7 @@ def train(cfg: DictConfig) -> Tuple[Dict[str, Any], Dict[str, Any]]:
         "callbacks": callbacks,
         "logger": logger,
         "trainer": trainer,
+        "provenance": provenance_record,
     }
 
     if logger:

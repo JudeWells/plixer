@@ -52,6 +52,23 @@ def log_hyperparameters(object_dict: Dict[str, Any]) -> None:
     hparams["ckpt_path"] = cfg.get("ckpt_path")
     hparams["seed"] = cfg.get("seed")
 
+    # Mirror provenance to the loggers so it survives on the W&B server even if the
+    # local run directory is lost (which is what happened to previous crashed runs).
+    provenance = object_dict.get("provenance")
+    if provenance:
+        git = provenance.get("git", {})
+        hparams["provenance/run_id"] = provenance.get("run_id")
+        hparams["provenance/git_commit"] = git.get("commit")
+        hparams["provenance/git_describe"] = git.get("describe")
+        hparams["provenance/git_branch"] = git.get("branch")
+        hparams["provenance/git_dirty"] = git.get("is_dirty")
+        hparams["provenance/run_dir"] = provenance.get("run_dir")
+        hparams["provenance/hostname"] = provenance.get("env", {}).get("hostname")
+        hparams["provenance/parent_checkpoints"] = [
+            {"config_key": p.get("config_key"), "path": p.get("path")}
+            for p in provenance.get("parent_checkpoints", [])
+        ]
+
     # send hparams to all loggers
     for logger in trainer.loggers:
         logger.log_hyperparams(hparams)
